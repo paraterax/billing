@@ -403,6 +403,35 @@ class CollectorBase(object):
 
             self.bill_func.sql_execute(bind_job_sql, (user_id, pay_user_id, group_id, cluster_user_id))
 
+    def sync_job(self):
+        """
+        [
+            {
+                "id": 2662,
+                "user": "scxubn",
+                "partition": "debug",
+                "job_id": "2574_5",
+                "job_name": "bi2pfstceiling",
+                "status": "COMPLETED",
+                "cputime_raw": 2028,
+                "alloc_cpus": 3,
+                "alloc_gpus": 0,
+                "elapsed": "00:11:16",
+                "elapsed_raw": 676,
+                "nnodes": 1,
+                "node_list": "gm13",
+                "ntasks": 0,
+                "exit_code": "0:0",
+                "submit_time": "2018-01-25T20:15:34",
+                "start_time": "2018-01-25T23:48:44",
+                "end_time": "2018-01-26T00:00:00",
+                "create_time": "2018-01-26T13:54:15.158173",
+                "update_time": "2018-01-26T13:54:15.158190"
+            }
+        ]
+        :return:
+        """
+
     def save_job(self, job, cluster_part, cluster_user):
         """
         :param job:

@@ -12,12 +12,24 @@ from database import *
 from collector.tools.remote import SSH
 from collector.tools import process
 
+from collector.cpu.collector import *
+from collector.cpu.log import *
+
+collector_class_dict = {
+    "GUANGZHOU": CollectorGZ,
+    "PART1": CollectorCS,
+    "ParaGrid1": CollectorGrid,
+    "LVLIANG": CollectorLL,
+    "ERA": CollectorERA
+}
 
 # Create your views here.
 
+
 @method_decorator(csrf_exempt, name='dispatch')
 class CheckView(View):
-    def cluster_user_cpu_usage(self, cluster, user, collect_day):
+    @staticmethod
+    def cluster_user_cpu_usage(cluster, user, collect_day):
         cluster_user_unbind_sql = dedent("""
         SELECT * FROM t_cluster_user
         WHERE cluster_id=%s
@@ -51,7 +63,7 @@ class CheckView(View):
             (daily_cost.partition, daily_cost.cpu_time) for daily_cost in daily_cost_list
         ])
 
-        return db_data
+        return cluster_user, db_data
 
     @staticmethod
     def parse_format(origin_data):
@@ -134,8 +146,11 @@ class CheckView(View):
             cpu_check_dict[start_day_str] = {}
 
             for cluster_user in cluster_user_list:
-                db_data = self.cluster_user_cpu_usage(cluster_id, cluster_user, start_day_str)
-                cpu_check_dict[start_day_str][cluster_user] = {'db_data': db_data}
+                cluster_user_obj, db_data = self.cluster_user_cpu_usage(cluster_id, cluster_user, start_day_str)
+                cpu_check_dict[start_day_str][cluster_user] = {
+                    'cluster_user_id': cluster_user_obj.id,
+                    'db_data': db_data
+                }
 
                 command = (
                     'yhacct -u {username} -X -T -S {start_day} -E {end_day} '
@@ -187,3 +202,40 @@ class CollectView(View):
         end_day = request.POST.get('end_day')
 
 
+@method_decorator(csrf_exempt, name='dispatch')
+class AccountBalanceView(View):
+    @csrf_exempt
+    def post(self, request):
+        cluster_id = request.POST.get('cluster')
+        cluster_user_id = request.POST.get('cluster_user_id')
+        collect_day = request.POST.get('collect_day')
+        old_cpu = request.POST.get('old_cpu_time')
+        checked_cpu = request.POST.get('cpu_time')
+        partition = request.POST.get('partition')
+
+        collector_cls = collector_class_dict.get(cluster_id)
+
+        collector = collector_cls(_logger=cpu_logger)
+
+        cluster_user = collector.query_cluster_user_by_id(cluster_user_id)
+
+        if old_cpu is None:
+            collector.bill_func.save_daily_cost(cluster_user, collect_day, partition, 'CPU', checked_cpu)
+        else:
+            sql = dedent("""
+            SELECT * FROM t_daily_cost 
+            WHERE cluster_user_id=%s AND collect_date=%s AND `partition`=%s AND was_removed=0
+            """)
+            daily_cost = query(sql, cluster_user_id, collect_day, partition, first=True)
+
+            if daily_cost is None:
+                return HttpResponse(content='{"msg": "Daily cost not found."}', status=404,
+                                    content_type='application/json')
+            if daily_cost.cpu_time != float(old_cpu):
+                return HttpResponse(content='{"msg": "Daily cost cpu time not match old cpu."}', status=404,
+                                    content_type='application/json')
+            collector._update_daily_cost_by_id(
+                daily_cost.id, checked_cpu, update_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            )
+
+        return HttpResponse(content_type="application/json", content='{"msg": "Check ok"}', status=200)

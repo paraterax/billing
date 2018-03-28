@@ -83,8 +83,6 @@ if DEBUG:
 else:
     db_config_file = os.path.join(BASE_DIR, 'billing_collect_new/database_prod.cnf')
 
-print(db_config_file)
-
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
