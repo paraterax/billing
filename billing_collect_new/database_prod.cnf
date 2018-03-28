@@ -1,6 +1,0 @@
-[client]
-database = billing_cnic
-host = 127.0.0.1
-user = mysql
-password = Paratera@2017
-default-character-set = utf8
