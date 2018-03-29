@@ -106,3 +106,4 @@ venv.bak/
 .mypy_cache/
 billing_collect_new/collect_config.py
 logs/
+.idea/
