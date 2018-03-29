@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from celery import shared_task
 
 from collector.cpu.collector import *
+from collector.cpu.log import *
+from collector.cpu.tasks import CPUTasks, CPUCheckTasks, NodeTasks, UtilizationTasks
 
 collector_class_dict = {
     "GUANGZHOU": CollectorGZ,
@@ -45,7 +47,7 @@ def sync_user(cluster_list='*'):
             collector_config = cluster
 
         _valid_collector_num += 1
-        collector_ins.append(collector_cls(cluster=cluster, _config=collector_config))
+        collector_ins.append(collector_cls(cluster=cluster, _config=collector_config, _logger=cpu_logger))
 
     if _valid_collector_num == 0:
         return
@@ -102,3 +104,35 @@ def sync_pend_node_job_info():
 @shared_task
 def sync_node_utilization():
     pass
+
+
+@shared_task
+def cpu_collect_task(start_day, end_day):
+    cpu_task = CPUTasks(_logger=cpu_logger)
+    cpu_task.start((start_day, end_day))
+
+    return "CPU Collect Success!"
+
+
+@shared_task
+def node_collect_task():
+    node_task = NodeTasks(_logger=node_logger)
+    node_task.start()
+
+    return "Node Collect Success!"
+
+
+@shared_task
+def utilization_collect_task():
+    utilization_task = UtilizationTasks(_logger=node_logger)
+    utilization_task.start()
+
+    return "Utilization Collect Success!"
+
+
+@shared_task
+def cpu_check_task(days=7, month_check=False):
+    check_task = CPUCheckTasks(_logger=check_logger)
+    check_task.start(days=days, month_check=month_check)
+
+    return "CPU Check Success!"

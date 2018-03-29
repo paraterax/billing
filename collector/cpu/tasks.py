@@ -51,7 +51,7 @@ class CPUTasks(Tasks):
         for collector_cls in self.collectors:
             collector = None
             try:
-                collector = collector_cls(self.logger)
+                collector = collector_cls(_logger=self.logger)
                 self.write_log('INFO', '%s BEGIN CLUSTER CPU COLLECT: %s %s', '=' * 15, collector.cluster.id, '=' * 15)
 
                 # 1. 采集用户信息
@@ -104,7 +104,7 @@ class NodeTasks(Tasks):
         for collector_cls in self.collectors:
             collector = None
             try:
-                collector = collector_cls(self.logger)
+                collector = collector_cls(_logger=self.logger)
                 self.write_log('INFO', '%s BEGIN CLUSTER NODE COLLECT: %s %s', '=' * 15, collector.cluster.id, '=' * 15)
 
                 # 1. 采集节点
@@ -134,7 +134,7 @@ class UtilizationTasks(Tasks):
         for collector_cls in self.collectors:
             collector = None
             try:
-                collector = collector_cls(self.logger)
+                collector = collector_cls(_logger=self.logger)
                 self.write_log('INFO', '%s BEGIN CLUSTER UTILIZATION COLLECT: %s %s', '=' * 15, collector.cluster.id, '=' * 15)
 
                 collector.fetch_node_utilization_rate()
@@ -165,7 +165,7 @@ class CPUCheckTasks(Tasks):
         for collector_cls in self.collectors:
             collector = None
             try:
-                collector = collector_cls(self.logger)
+                collector = collector_cls(_logger=self.logger)
                 self.write_log('INFO', '%s BEGIN TO CHECK BILL OF CLUSTER:[%s] FROM %s TO %s %s', '=' * 15,
                                collector.cluster_name,
                                start_day.strftime('%Y-%m-%d %H:%M:%S'), current_day.strftime('%Y-%m-%d %H:%M:%S'),
