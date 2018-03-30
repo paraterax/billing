@@ -141,7 +141,7 @@ class CollectorERA(CollectorBase):
         daily_cost = namedtuple('Daily_Cost', ('cpu_time', 'queue', 'cpu_type', 'collect_date'))
 
         cpu_type_sql = "SELECT `name`, cpu_time_type_id FROM t_cluster_partition WHERE cluster_id='ERA'"
-        cpu_type_set = self.query(cpu_type_sql)
+        cpu_type_set = self.bill_func.query(cpu_type_sql)
         cpu_type_dict = dict([(cpu_type.name, cpu_type.cpu_time_type_id) for cpu_type in cpu_type_set])
 
         job_list, cpu_time_dict = self.extract_job_from_file(user_data_file, date_range, cpu_type_dict)
@@ -162,11 +162,11 @@ class CollectorERA(CollectorBase):
         """
 
         cluster_user_sql = "SELECT * FROM t_cluster_user WHERE cluster_id='ERA' AND username=%s AND is_bound=1"
-        cluster_user = self.query(cluster_user_sql, username, first=True)
+        cluster_user = self.bill_func.query(cluster_user_sql, username, first=True)
 
         for _job in job_list:
             job_start_time = datetime.strptime('%s %s' % (_job.start_date, _job.start_time), '%Y/%m/%d %H:%M:%S')
-            stored_job = self.query(select_job_sql, 'ERA%s' % _job.job_id, job_start_time, first=True)
+            stored_job = self.bill_func.query(select_job_sql, 'ERA%s' % _job.job_id, job_start_time, first=True)
             # if the job is stored more than X(for example 1) month, then think it as another job
             # stored_job_id = None
             # for stored_job in stored_job_set:
@@ -229,7 +229,7 @@ class CollectorERA(CollectorBase):
 
     def fetch(self, date_range):
         date_range = self.format_date_range(date_range)
-        cluster_user_list = self.query_cluster_user()
+        cluster_user_list = self.bill_func.query_cluster_user()
         time_duration = self.separate_date(date_range)
 
         stored_dir = os.path.join(BASE_DIR, 'tasks/cpu/era/')
@@ -257,7 +257,7 @@ class CollectorERA(CollectorBase):
 
     def fetch_by_day(self, collect_command, check=False, **kwargs):
         collect_date = kwargs.get('day')
-        cluster_user_list = self.query_cluster_user()
+        cluster_user_list = self.bill_func.query_cluster_user()
 
         stored_dir = os.path.join(BASE_DIR, 'tasks/cpu/era/check/')
         if not os.path.exists(stored_dir):
@@ -269,7 +269,7 @@ class CollectorERA(CollectorBase):
             self.scp_file(src_dir, stored_dir, is_dir=True)
 
         cpu_type_sql = "SELECT `name`, cpu_time_type_id FROM t_cluster_partition WHERE cluster_id='ERA'"
-        cpu_type_set = self.query(cpu_type_sql)
+        cpu_type_set = self.bill_func.query(cpu_type_sql)
         cpu_type_dict = dict([(cpu_type.name, cpu_type.cpu_time_type_id) for cpu_type in cpu_type_set])
 
         cpu_data_file_dir = os.path.join(stored_dir, collect_date.strftime('%Y%m'))
@@ -311,7 +311,7 @@ class CollectorERA(CollectorBase):
                 shutil.rmtree(cpu_file_dir)
 
     def fetch_user(self):
-        cluster_user_list = self.query_cluster_user()
+        cluster_user_list = self.bill_func.query_cluster_user()
         self.reconnect()
 
         command = "cat /home/blsc/statistics/bin/.blsc_users | awk '{print \"user:\"$1}'"

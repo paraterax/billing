@@ -14,6 +14,20 @@ def query_set_wrapper(cursor):
     return [nt_result(*row) for row in cursor.fetchall()]
 
 
+def db_reconnect(func):
+    def call(*args, **kwargs):
+        for retry_time in range(3):
+            try:
+                return func(*args, **kwargs)
+            except MySQLdb.Error as err:
+                if retry_time == 2:
+                    raise MySQLdb.Error(err)
+                continue
+
+    return call
+
+
+@db_reconnect
 def query(sql, *params, first=False):
     cursor = connection.cursor()
     cursor.execute(sql, params)
@@ -29,6 +43,7 @@ def query(sql, *params, first=False):
     return query_set
 
 
+@db_reconnect
 def sql_execute(sql, params, write_log, autocommit=True):
     insert_reg = re.compile(r'^ *insert .*$')
     update_reg = re.compile(r'^ *update .*$')
@@ -73,6 +88,7 @@ def format_params(params, exec_result):
     return new_params
 
 
+@db_reconnect
 def sql_execute_trans(sql_and_params_l, write_log):
     is_autocommit = connection.get_autocommit()
     connection.autocommit(False)
@@ -96,20 +112,18 @@ def sql_execute_trans(sql_and_params_l, write_log):
 def db_transaction(wrapper_func):
     @wraps(wrapper_func)
     def inner_func(*args, **kwargs):
-        func_owner = args[0]
-        _conn = getattr(func_owner, 'connection', None)
 
-        is_autocommit = _conn.get_autocommit()
-        _conn.autocommit(False)
+        is_autocommit = connection.get_autocommit()
+        connection.set_autocommit(False)
 
         try:
             wrapper_func(*args, **kwargs)
-            _conn.commit()
+            connection.commit()
         except Exception as err:
-            _conn.rollback()
+            connection.rollback()
             raise Exception(str(err))
         finally:
-            _conn.autocommit(is_autocommit)
+            connection.set_autocommit(is_autocommit)
 
     return inner_func
 

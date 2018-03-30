@@ -272,8 +272,18 @@ class BillFunctions:
         return need_new
 
     def update_daily_cost(self, cluster_user, collect_date, partition, cpu_type, cpu_time):
-        select_sql = "SELECT id, cpu_time, user_id FROM t_daily_cost WHERE cluster_user_id=%s AND daily=%s " \
+        daily = days_from_1970(collect_date)
+
+        if partition is not None:
+            select_sql = "SELECT id, cpu_time, user_id FROM t_daily_cost WHERE cluster_user_id=%s AND daily=%s " \
                      "AND cluster_id=%s AND `partition`=%s AND cpu_time_type_id=%s AND account=%s AND was_removed=0"
+            params = (cluster_user.id, daily, cluster_user.cluster_id, partition, cpu_type,
+                      'NOT_PAPP_%s' % cluster_user.id)
+        else:
+            select_sql = "SELECT id, cpu_time, user_id FROM t_daily_cost WHERE cluster_user_id=%s AND daily=%s " \
+                         "AND cluster_id=%s AND `partition` IS NULL AND cpu_time_type_id=%s " \
+                         "AND account=%s AND was_removed=0"
+            params = (cluster_user.id, daily, cluster_user.cluster_id, cpu_type, 'NOT_PAPP_%s' % cluster_user.id)
 
         # 应该根据cluster_user_id 而不是user_id，因为user_id 可能之前没有值，后来绑定了，就有值了，但是daily_cost中可能没有
         # if cluster_user.user_id is None:
@@ -281,9 +291,6 @@ class BillFunctions:
         # else:
         #     select_sql = select_sql.format(user_id='user_id=%s')
 
-        daily = days_from_1970(collect_date)
-        params = (cluster_user.id, daily, cluster_user.cluster_id, partition, cpu_type,
-                  'NOT_PAPP_%s' % cluster_user.id)
         daily_cost = self.query(select_sql, *params, first=True)
 
         if daily_cost is None:

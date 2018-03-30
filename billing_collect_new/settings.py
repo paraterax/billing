@@ -145,8 +145,8 @@ CELERY_RESULT_BACKEND = "redis://"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = USE_TZ
 CELERY_TASK_ROUTES = {
-    'collector.tasks.*': 'collect',
-    'collector.result.*': 'result'
+    'collector.tasks.*': {'queue': 'collect'},
+    'collector.result.*': {'queue': 'result'}
 }
 
 

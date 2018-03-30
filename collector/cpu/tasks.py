@@ -47,6 +47,11 @@ class CPUTasks(Tasks):
         if not date_range:
             collect_date = datetime.now() - timedelta(days=1)
             date_range = collect_date.strftime('%Y-%m-%d')
+        else:
+            if isinstance(date_range, (list, tuple)):
+                collect_date = date_range[0]
+            else:
+                collect_date = date_range
 
         for collector_cls in self.collectors:
             collector = None
