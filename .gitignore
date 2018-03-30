@@ -109,4 +109,4 @@ billing_collect_new/collect_config.py
 billing_collect_new/database_dev.cnf
 billing_collect_new/database_prod.cnf
 logs/
-.idea/
+tasks/
