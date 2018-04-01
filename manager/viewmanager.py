@@ -58,13 +58,13 @@ class ViewManager(View):
 
         return [
             {
-                "id": paratera_user.id,
-                "name": "%s(%s)" % (paratera_user.username, paratera_user.email)
+                "value": paratera_user.id,
+                "label": "%s(%s)" % (paratera_user.username, paratera_user.email)
             } for paratera_user in paratera_user_query
         ]
 
     @staticmethod
-    def query_checked_cpu_by_cluster_user(cluster_user_obj, start_day, end_day):
+    def query_checked_cpu_by_cluster_user(cluster_user_obj, start_day, end_day, ssh_client):
         """
         查询指定cluster_user的校验机时，如果指定的时间范围，超过了其绑定和解绑时间，将按照绑定和解绑时间操作
         :param cluster_user_obj:
@@ -96,8 +96,6 @@ class ViewManager(View):
         start_day = min(start_day, bound_time)
         end_day = max(end_day, unbind_time)
 
-        ssh = SSH(cluster_user_obj.cluster_id)
-
         command = (
             'export PATH=/HOME/paratera_gz/.paratera_toolkit/miniconda2/bin:$PATH && '
             'cd /HOME/paratera_gz/.paratera_toolkit/project/accounting && '
@@ -109,9 +107,8 @@ class ViewManager(View):
             )
         )
 
-        ssh.connect()
-        code, stdout, stderr = ssh.execute(command, auto_close=False)
-        ssh.close()
+        ssh_client.reconnect()
+        code, stdout, stderr = ssh_client.execute(command, auto_close=False)
 
         if code == 0:
             cpu_check_dict = json.loads(stdout)
@@ -121,7 +118,7 @@ class ViewManager(View):
         return cpu_check_dict
 
     @staticmethod
-    def query_checked_cpu_by_cluster_and_username(cluster_id, username, start_day, end_day):
+    def query_checked_cpu_by_cluster_and_username(cluster_id, username, start_day, end_day, ssh_client):
         """
         查询指定cluster_user的校验机时，如果指定的时间范围，超过了其绑定和解绑时间，将按照绑定和解绑时间操作
         :param cluster_id:
@@ -148,8 +145,6 @@ class ViewManager(View):
             }
         }
         """
-        ssh = SSH(cluster_id)
-
         command = (
             'export PATH=/HOME/paratera_gz/.paratera_toolkit/miniconda2/bin:$PATH && '
             'cd /HOME/paratera_gz/.paratera_toolkit/project/accounting && '
@@ -160,9 +155,8 @@ class ViewManager(View):
                 end_day=end_day.strftime('%Y-%m-%d')
             )
         )
-        ssh.connect()
-        code, stdout, stderr = ssh.execute(command, auto_close=False)
-        ssh.close()
+        ssh_client.reconnect()
+        code, stdout, stderr = ssh_client.execute(command, auto_close=False)
 
         if code == 0:
             cpu_check_dict = json.loads(stdout)
@@ -232,8 +226,11 @@ class ViewManager(View):
         bound_time = cluster_user_obj.created_time
         unbind_time = cluster_user_obj.unbind_time or datetime.now()
 
-        start_day = min(start_day, bound_time)
-        end_day = max(end_day, unbind_time)
+        start_day = max(start_day, bound_time)
+        end_day = min(end_day, unbind_time)
+        
+        start_day = datetime(start_day.year, start_day.month, start_day.day)
+        end_day = datetime(end_day.year, end_day.month, end_day.day)
 
         cpu_query_sql = "SELECT * FROM t_daily_cost WHERE cluster_user_id=%s AND collect_date=%s"
 
@@ -243,7 +240,6 @@ class ViewManager(View):
         while start_day <= end_day:
             start_day_str = start_day.strftime('%Y-%m-%d')
             next_day = start_day + timedelta(days=1)
-
             cpu_info_query = query(cpu_query_sql, cluster_user_obj.id, start_day_str)
 
             cpu_db_dict[_k][start_day_str] = {
@@ -251,7 +247,8 @@ class ViewManager(View):
                 'cluster_user_id': cluster_user_obj.id,
                 'partition': [
                     {
-                        "name": cpu_info.partition, "db_data": cpu_info.cpu_time
+                        "name": cpu_info.partition,
+                        "db_data": cpu_info.cpu_time
                     } for cpu_info in cpu_info_query
                 ]
             }
@@ -310,7 +307,16 @@ class ViewManager(View):
                 check_data = check_cpu_user_info.get(collect_day, {})
                 for partition_dict in db_cpu_user_info[collect_day]['partition']:
                     partition_name = partition_dict['name']
-                    partition_dict['check_data'] = check_data.get(partition_name, 0)
+                    partition_dict['check_data'] = check_data.pop(partition_name, 0)
+
+                for partition_name in check_data:
+                    db_cpu_user_info[collect_day]['partition'].append(
+                        {
+                            'name': partition_name,
+                            'check_data': check_data[partition_name],
+                            'db_data': 0
+                        }
+                    )
 
         return db_cpu_dict
 

@@ -9,6 +9,7 @@ from django.utils.decorators import method_decorator
 from database import *
 
 from collector.cpu.collector import *
+from collector.tools.remote import SSH
 from collector.cpu.log import *
 
 collector_class_dict = {
@@ -41,24 +42,43 @@ class CheckView(ViewManager):
 
         db_cpu_dict = {}
         checked_cpu_dict = {}
+
+        ssh_client_dict = {}
         if paratera_user is not None:
             cluster_user_query = query("SELECT * FROM t_cluster_user WHERE user_id=%s", paratera_user)
             for cluster_user_obj in cluster_user_query:
+                if cluster_user_obj.cluster_id in ssh_client_dict:
+                    ssh_client = ssh_client_dict[cluster_user_obj.cluster_id]
+                else:
+                    ssh_client = SSH(cluster_user_obj.cluster_id)
+                    ssh_client_dict[cluster_user_obj.cluster_id] = ssh_client
+                    ssh_client.connect()
+
                 db_cpu_element = self.query_cpu_by_cluster_user(cluster_user_obj, start_day, end_day)
                 db_cpu_dict.update(db_cpu_element)
 
-                checked_cpu_element = self.query_checked_cpu_by_cluster_user(cluster_user_obj, start_day, end_day)
+                checked_cpu_element = self.query_checked_cpu_by_cluster_user(cluster_user_obj, start_day, end_day,
+                                                                             ssh_client)
                 checked_cpu_dict.update(checked_cpu_element)
         else:
             cluster_user_list = cluster_user.split(',')
 
             for cluster_user in cluster_user_list:
+                if cluster_id in ssh_client_dict:
+                    ssh_client = ssh_client_dict[cluster_id]
+                else:
+                    ssh_client = SSH(cluster_id)
+                    ssh_client_dict[cluster_id] = ssh_client
+                    ssh_client.connect()
                 db_cpu_element = self.query_cpu_by_cluster_and_username(cluster_id, cluster_user, start_day, end_day)
                 db_cpu_dict.update(db_cpu_element)
 
                 checked_cpu_element = self.query_checked_cpu_by_cluster_and_username(
-                    cluster_id, cluster_user, start_day, end_day)
+                    cluster_id, cluster_user, start_day, end_day, ssh_client)
                 checked_cpu_dict.update(checked_cpu_element)
+
+        for _cid, _ssh in ssh_client_dict.items():
+            _ssh.close()
 
         merged_cpu_dict = self.merge_cpu(db_cpu_dict, checked_cpu_dict)
         summary_cpu_dict = self.cpu_summary(merged_cpu_dict)
@@ -80,11 +100,17 @@ class CollectView(ViewManager):
         end_day = request.POST.get('end_day')
 
 
+class UserListView(ViewManager):
+    def get(self, request):
+        user_list = self.query_paratera_user()
+
+        return HttpResponse(content_type='application/json', content=json.dumps(user_list), status=200)
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class AccountBalanceView(ViewManager):
     @csrf_exempt
     def post(self, request):
-        print(request.POST)
         cluster_id = request.POST.get('cluster_id')
         cluster_user_id = request.POST.get('cluster_user_id')
         username = request.POST.get('username')
