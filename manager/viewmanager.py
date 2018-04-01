@@ -314,3 +314,82 @@ class ViewManager(View):
 
         return db_cpu_dict
 
+    @staticmethod
+    def cpu_summary(cpu_detail_info_dict):
+        """
+        :param cpu_detail_info_dict:
+        {
+            "p_cfd_01(1232)": {
+                "2018-01-01": {
+                    "cluster_id": "GUANGZHOU",
+                    "cluster_user_id": 1232,
+                    "partition": [
+                        {
+                            "name": "paratea",
+                            "db_data": 12423,
+                            "check_data": 12423
+                        }
+                    ]
+                }
+            }
+        }
+        :return:
+        {
+            "p_cfd_01(1232)": {
+                "cluster_id": "GUANGZHOU",
+                "checked": {
+                    "partition": {
+                        "paratera": 12423,
+                        "work": 232223
+                    },
+                    "total": 244646
+                },
+                "db": {
+                    "partition": {
+                        "paratera": 12423,
+                        "work": 232223
+                    },
+                    "total": 244646
+                }
+            }
+        }
+        """
+        summary_cpu_dict = {}
+        for username, date_cpu_usage_dict in cpu_detail_info_dict.items():
+            cluster_id = ""
+            total_cpu_db = 0
+            total_cpu_checked = 0
+            partition_info_db = {}
+            partition_info_checked = {}
+
+            for collect_day, day_cpu_usage_dict in date_cpu_usage_dict.items():
+                cluster_id = day_cpu_usage_dict['cluster_id']
+
+                for partition_dict in day_cpu_usage_dict['partition']:
+                    partition_name = partition_dict['name']
+                    if partition_name not in partition_info_db:
+                        partition_info_db[partition_name] = partition_dict['db_data']
+                    else:
+                        partition_info_db[partition_name] += partition_dict['db_data']
+
+                    if partition_name not in partition_info_checked:
+                        partition_info_checked[partition_name] = partition_dict['check_data']
+                    else:
+                        partition_info_checked[partition_name] += partition_dict['check_data']
+
+                    total_cpu_checked += partition_dict['check_data']
+                    total_cpu_db += partition_dict['db_data']
+
+            summary_cpu_dict[username] = {
+                "cluster_id": cluster_id,
+                "checked": {
+                    "total": total_cpu_checked,
+                    "partition": partition_info_checked
+                },
+                "db": {
+                    "total": total_cpu_db,
+                    "partition": partition_info_db
+                }
+            }
+
+        return summary_cpu_dict

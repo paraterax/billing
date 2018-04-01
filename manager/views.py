@@ -1,5 +1,4 @@
 import json
-from textwrap import dedent
 from datetime import datetime, timedelta
 from django.http.response import HttpResponse
 
@@ -8,9 +7,6 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
 from database import *
-
-from collector.tools.remote import SSH
-from collector.tools import process
 
 from collector.cpu.collector import *
 from collector.cpu.log import *
@@ -65,10 +61,14 @@ class CheckView(ViewManager):
                 checked_cpu_dict.update(checked_cpu_element)
 
         merged_cpu_dict = self.merge_cpu(db_cpu_dict, checked_cpu_dict)
+        summary_cpu_dict = self.cpu_summary(merged_cpu_dict)
 
-        cpu_check_list = self.parse_format(merged_cpu_dict)
+        cpu_info = {
+            "detail": merged_cpu_dict,
+            "summary": summary_cpu_dict
+        }
 
-        return HttpResponse(content_type='application/json', content=json.dumps(cpu_check_list), status=200)
+        return HttpResponse(content_type='application/json', content=json.dumps(cpu_info), status=200)
 
 
 class CollectView(ViewManager):
