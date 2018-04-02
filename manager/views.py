@@ -44,21 +44,22 @@ class CheckView(ViewManager):
         checked_cpu_dict = {}
 
         ssh_client_dict = {}
-        if paratera_user is not None:
+        if paratera_user is not None and paratera_user != '':
             cluster_user_query = query("SELECT * FROM t_cluster_user WHERE user_id=%s", paratera_user)
             for cluster_user_obj in cluster_user_query:
                 if cluster_user_obj.cluster_id in ssh_client_dict:
                     ssh_client = ssh_client_dict[cluster_user_obj.cluster_id]
                 else:
                     ssh_client = SSH(cluster_user_obj.cluster_id)
-                    ssh_client_dict[cluster_user_obj.cluster_id] = ssh_client
                     ssh_client.connect()
+                    ssh_client_dict[cluster_user_obj.cluster_id] = ssh_client
 
                 db_cpu_element = self.query_cpu_by_cluster_user(cluster_user_obj, start_day, end_day)
                 db_cpu_dict.update(db_cpu_element)
 
-                checked_cpu_element = self.query_checked_cpu_by_cluster_user(cluster_user_obj, start_day, end_day,
-                                                                             ssh_client)
+                checked_cpu_element = self.query_checked_cpu_by_cluster_user(
+                    cluster_user_obj, start_day, end_day, ssh_client
+                )
                 checked_cpu_dict.update(checked_cpu_element)
         else:
             cluster_user_list = cluster_user.split(',')
@@ -68,13 +69,13 @@ class CheckView(ViewManager):
                     ssh_client = ssh_client_dict[cluster_id]
                 else:
                     ssh_client = SSH(cluster_id)
-                    ssh_client_dict[cluster_id] = ssh_client
                     ssh_client.connect()
+                    ssh_client_dict[cluster_id] = ssh_client
                 db_cpu_element = self.query_cpu_by_cluster_and_username(cluster_id, cluster_user, start_day, end_day)
                 db_cpu_dict.update(db_cpu_element)
 
                 checked_cpu_element = self.query_checked_cpu_by_cluster_and_username(
-                    cluster_id, cluster_user, start_day, end_day, ssh_client)
+                    cluster_user, start_day, end_day, ssh_client)
                 checked_cpu_dict.update(checked_cpu_element)
 
         for _cid, _ssh in ssh_client_dict.items():

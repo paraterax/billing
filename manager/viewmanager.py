@@ -107,7 +107,7 @@ class ViewManager(View):
             )
         )
 
-        ssh_client.reconnect()
+        # ssh_client.reconnect()
         code, stdout, stderr = ssh_client.execute(command, auto_close=False)
 
         if code == 0:
@@ -118,10 +118,9 @@ class ViewManager(View):
         return cpu_check_dict
 
     @staticmethod
-    def query_checked_cpu_by_cluster_and_username(cluster_id, username, start_day, end_day, ssh_client):
+    def query_checked_cpu_by_cluster_and_username(username, start_day, end_day, ssh_client):
         """
         查询指定cluster_user的校验机时，如果指定的时间范围，超过了其绑定和解绑时间，将按照绑定和解绑时间操作
-        :param cluster_id:
         :param username:
         :param start_day:
         :param end_day:
@@ -155,7 +154,7 @@ class ViewManager(View):
                 end_day=end_day.strftime('%Y-%m-%d')
             )
         )
-        ssh_client.reconnect()
+        # ssh_client.reconnect()
         code, stdout, stderr = ssh_client.execute(command, auto_close=False)
 
         if code == 0:
