@@ -171,11 +171,15 @@ class CollectorBase(object):
         if isinstance(date_range, (tuple, list)):
             start_date, end_date = date_range
         else:
-            start_date = end_date = date_range
+            start_date = date_range
+            end_date = None
 
         if isinstance(start_date, str):
             start_date = datetime.strptime(start_date, '%Y-%m-%d')
-        if isinstance(end_date, str):
+
+        if end_date is None:
+            end_date = start_date + timedelta(days=1)
+        elif isinstance(end_date, str):
             end_date = datetime.strptime(end_date, '%Y-%m-%d')
 
         return start_date, end_date
@@ -277,7 +281,7 @@ class CollectorBase(object):
         cluster_user_dict = {}
 
         for cu in cluster_user:
-            if cu.user_id is None and cu.is_bound != 1:
+            if cu.user_id is None and cu.is_bound == 1:
                 # 这是解绑过的, 从t_daily_cost查找当时的扣费用户
                 user_bind_info = self.bill_func.query(select_user_sql, cu.id)
                 bind_user_l = [_ubi.user_id for _ubi in user_bind_info]
@@ -509,20 +513,77 @@ class CollectorBase(object):
 
         self.bill_func.sql_execute(sql, params)
 
-    def save_node(self, node_list, **kwargs):
+    def save_node(self, node_info_dict, collect_type):
+        """
+        :param node_info_dict:
+        {
+            "GUANGZHOU_PP292": {
+                "alloc": {
+                    "2018-04-09 16:50:07": "0"
+                },
+                "drain": {
+                    "2018-04-09 16:50:07": "1"
+                },
+                "invalid": {
+                    "2018-04-09 16:50:07": "0"
+                },
+                "idle": {
+                    "2018-04-09 16:50:07": "54"
+                },
+                "total": {
+                    "2018-04-09 16:50:07": "55"
+                },
+                "drng": {
+                    "2018-04-09 16:50:07": "0"
+                }
+            },
+            "GUANGZHOU": {
+                "alloc": {
+                    "2018-04-09 16:50:07": "3187"
+                },
+                "drain": {
+                    "2018-04-09 16:50:07": "940"
+                },
+                "idle": {
+                    "2018-04-09 16:50:07": "339"
+                }
+            },
+            "GUANGZHOU_ALL": {
+                "alloc": {
+                    "2018-04-09 16:50:07": "7262"
+                },
+                "drain": {
+                    "2018-04-09 16:50:07": "2012"
+                },
+                "invalid": {
+                    "2018-04-09 16:50:07": "117"
+                },
+                "idle": {
+                    "2018-04-09 16:50:07": "1521"
+                },
+                "total": {
+                    "2018-04-09 16:50:07": "10880"
+                },
+                "drng": {
+                    "2018-04-09 16:50:07": "65"
+                }
+            }
+        }
+        :return:
+        """
         insert_sql = """
         INSERT INTO
         t_cluster_sc_node (cluster_id, node_type, nodes, collect_type, created_time, updated_time)
         VALUES (%s, %s, %s, %s, %s, %s)
         """
 
-        collect_type = kwargs.pop('collect_type', 'nodes')
-        created_time = current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        if 'created_time' in kwargs:
-            created_time = kwargs.get('created_time')
-        for node in node_list:
-            params = (node.cluster_id, node.type, node.count, collect_type, created_time, current_time)
-            self.bill_func.sql_execute(insert_sql, params)
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        for cluster_partition, node_state_dict in node_info_dict.items():
+            for state, time_count_dict in node_state_dict.items():
+                for time, count in time_count_dict.items():
+                    params = (cluster_partition, state, count, collect_type, time, current_time)
+
+                    self.bill_func.sql_execute(insert_sql, params)
 
     def save_pend_info(self, job_num, node_num):
         insert_sql = """

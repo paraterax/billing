@@ -24,6 +24,9 @@ class CollectorGZ(CollectorBase):
         super(CollectorGZ, self).__init__(cluster, _logger=_logger, config_key=_config)
         self.init_connected = self.connect()
 
+        self._init_env = 'export PATH=/HOME/paratera_gz/.paratera_toolkit/miniconda2/bin/:$PATH ' \
+                         '&& cd /HOME/paratera_gz/.paratera_toolkit/project/accounting/ && {}'
+
         self.collect_command = [
             'cat /WORK/paratera_gz/machine_collect_result/cpu/%s',
             'cat /WORK/paratera_gz/machine_collect_result/cpu/new/%s'
@@ -53,33 +56,11 @@ class CollectorGZ(CollectorBase):
     def string_to_cpu_time(self, word):
         return int(word)
 
-    def fetch_user_deprecated(self):
-        cluster_user_list = self.query_cluster_user()
-        self.reconnect()
-
-        command = "cat /HOME/paratera_gz/pacct/userlist-c | awk '{print \"user:\"$1}'"
-        stdout, stderr = self.exec_command(command)
-
-        for user in stdout:
-            try:
-                _, username = user.split(':')
-                username = username.strip('\n')
-            except ValueError:
-                continue
-
-            if username in cluster_user_list:
-                continue
-
-            self.save_cluster_user(username)
-            cluster_user_list.append(username)
-
     def fetch_user(self):
         cluster_user_list = self.query_cluster_user()
         self.reconnect()
 
-        command = "export PATH=/HOME/paratera_gz/.paratera_toolkit/miniconda2/bin/:$PATH " \
-                  "&& cd /HOME/paratera_gz/.paratera_toolkit/project/accounting/ " \
-                  "&& python manage.py runscript slurm_sync_users"
+        command = self._init_env.format("python manage.py runscript slurm_sync_users")
 
         stdout, stderr = self.exec_command(command)
 
@@ -104,85 +85,122 @@ class CollectorGZ(CollectorBase):
             self.save_cluster_user(username)
             cluster_user_list.append(username)
 
-    def _collect_command_execute_success(self, process_file):
+    def fetch(self, collect_date_range):
         """
-        判断采集脚本进程是否存在，以及是否执行成功
-        :param process_file:
-        :return: True／False(进程是否存在）, True／False（是否执行成功）
+        根据采集日期的时间范围，采集机时使用信息
+        如果原始信息中的超算用户不存在，则新建 cluster_user 记录。
+        将采集信息解析后，插入 daily_cost 记录(如果已有同一cluster_user_id, collect_day, partition 记录，则更新cpu time)。
+        :param collect_date_range:
+        :return:
         """
-        self.reconnect()
-        process_check_command = "ssh ln31 ps -ef | grep collect_daemon.sh | grep -v 'grep' | wc -l"
-        _, stdout, stderr = self.client.exec_command(process_check_command, timeout=TIMEOUT)
+        start_date, end_date = self.format_date_range(collect_date_range)
+        command = self._init_env.format(
+            "python manage.py runscript slurm_sync_daily_report --script-args {0} {1}".format(
+                start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+            )
+        )
+
+        stdout, stderr = self.exec_command(command)
+
         try:
-            line_number = stdout.readline().strip('\n')
-            process_exists = int(line_number) >= 1
-        except ValueError:
-            process_exists = False
+            daily_cost_raw_info = stdout.read()
+            if isinstance(daily_cost_raw_info, bytes):
+                daily_cost_raw_info = daily_cost_raw_info.decode()
+            daily_cost_dict = json.loads(daily_cost_raw_info)
+        except Exception as err:
+            self.write_log("EXCEPTION", err)
+            return
 
-        if not process_exists:
-            verify_command = "cat %s" % process_file
-            _, stdout, stderr = self.client.exec_command(verify_command, timeout=TIMEOUT)
-            process_result = stdout.readlines()
-            if len(process_result) == 3:
-                ret = process_result[1].strip('\n')
-                return process_exists, ret == "RESULT: SUCCESS"
-            else:
-                return process_exists, False
+        for collect_day, user_cost_dict in daily_cost_dict.items():
+            cluster_user_dict = self.query_cluster_user_full_by_time(collect_day)
+            for username, partition_cpu_dict in user_cost_dict.items():
+                if username in cluster_user_dict:
+                    cluster_user_obj = cluster_user_dict[username]
+                else:
+                    cluster_user_id = self.save_cluster_user(username)
+                    cluster_user_obj = self.query_cluster_user_by_id(cluster_user_id)
+                    cluster_user_dict[username] = cluster_user_obj
 
-        return process_exists, False
-
-    def fetch(self, collect_date, check=False):
-        start_date, end_date = self.format_date_range(collect_date)
-        curr_date = start_date
-
-        while curr_date <= end_date:
-            collect_command = self.generate_collect_command(curr_date, check=check)
-            self.fetch_cpu_data(curr_date, collect_command, check=check)
-
-            curr_date += timedelta(days=1)
+                for partition, cpu_time in partition_cpu_dict.items():
+                    self.bill_func.save_daily_cost(cluster_user_obj, collect_day, partition, "CPU", cpu_time)
 
     def fetch_node(self):
         """
-        GUANGZHOU idle 913
-        GUANGZHOU drain 1128
-        GUANGZHOU alloc 485
-        GUANGZHOU_ALL total 12416
-        GUANGZHOU_ALL idle 2892
-        GUANGZHOU_ALL alloc 4297
-        GUANGZHOU_ALL drain  5025
-        GUANGZHOU_ALL invalid 202
+        {
+            "GUANGZHOU_PP292": {
+                "alloc": {
+                    "2018-04-09 16:50:07": "0"
+                },
+                "drain": {
+                    "2018-04-09 16:50:07": "1"
+                },
+                "invalid": {
+                    "2018-04-09 16:50:07": "0"
+                },
+                "idle": {
+                    "2018-04-09 16:50:07": "54"
+                },
+                "total": {
+                    "2018-04-09 16:50:07": "55"
+                },
+                "drng": {
+                    "2018-04-09 16:50:07": "0"
+                }
+            },
+            "GUANGZHOU": {
+                "alloc": {
+                    "2018-04-09 16:50:07": "3187"
+                },
+                "drain": {
+                    "2018-04-09 16:50:07": "940"
+                },
+                "idle": {
+                    "2018-04-09 16:50:07": "339"
+                }
+            },
+            "GUANGZHOU_ALL": {
+                "alloc": {
+                    "2018-04-09 16:50:07": "7262"
+                },
+                "drain": {
+                    "2018-04-09 16:50:07": "2012"
+                },
+                "invalid": {
+                    "2018-04-09 16:50:07": "117"
+                },
+                "idle": {
+                    "2018-04-09 16:50:07": "1521"
+                },
+                "total": {
+                    "2018-04-09 16:50:07": "10880"
+                },
+                "drng": {
+                    "2018-04-09 16:50:07": "65"
+                }
+            }
+        }
         :return:
         """
         self.reconnect()
-        command = 'bash /HOME/paratera_gz/billing/statistics_node.sh'
-        self.write_log("INFO", "Execute command: %s" % command)
-        _, stdout, stderr = self.client.exec_command(command, timeout=TIMEOUT)
+        sql = "SELECT MAX(created_time) AS last_create_time FROM t_cluster_sc_node WHERE collect_type='nodes'"
+        time_info = self.bill_func.query(sql, first=True)
+        command = self._init_env.format(
+            "python manage.py runscript slurm_sync_node_state --script-args '{0}'".format(
+                time_info.last_create_time.strftime("%Y-%m-%d %H:%M:%S")
+            )
+        )
+        stdout, stderr = self.exec_command(command)
 
-        node_class = namedtuple('NodeInfo', ('cluster_id', 'type', 'count'))
-        statistics_node = [node_class(*_line.strip().split()) for _line in stdout]
+        try:
+            node_info_str = stdout.read()
+            if isinstance(node_info_str, bytes):
+                node_info_str = node_info_str.decode()
+            node_info_dict = json.loads(node_info_str)
+        except ValueError as err:
+            self.write_log("EXCEPTION", err)
+            return
 
-        new_node = self.fetch_node_new()
-        statistics_node.extend([node_class(*nd) for nd in new_node])
-
-        self.save_node(statistics_node)
-
-    def fetch_node_new(self):
-        """
-        只是查询PP292
-        yhinfo -p pp292
-        GUANGZHOU_PP292 total 55
-        GUANGZHOU_PP292 idle 54
-        GUANGZHOU_PP292 alloc 0
-        GUANGZHOU_PP292 drain 1
-        GUANGZHOU_PP292 invalid 0
-        :return:
-        """
-        self.reconnect()
-        command = 'bash /HOME/paratera_gz/billing/statistics_node_new.sh'
-        self.write_log("INFO", "Execute command: %s" % command)
-        _, stdout, stderr = self.client.exec_command(command, timeout=TIMEOUT)
-        statistics_node = [line.strip().split() for line in stdout]
-        return statistics_node
+        self.save_node(node_info_dict, 'nodes')
 
     def fetch_count_pend_job(self):
         pass

@@ -107,7 +107,7 @@ def sync_node_utilization():
 
 
 @shared_task
-def cpu_collect_task(start_day, end_day):
+def cpu_collect(start_day, end_day):
     cpu_task = CPUTasks(_logger=cpu_logger)
     cpu_task.start((start_day, end_day))
 
@@ -115,7 +115,7 @@ def cpu_collect_task(start_day, end_day):
 
 
 @shared_task
-def node_collect_task():
+def node_collect():
     node_task = NodeTasks(_logger=node_logger)
     node_task.start()
 
@@ -123,7 +123,7 @@ def node_collect_task():
 
 
 @shared_task
-def utilization_collect_task():
+def utilization_collect():
     utilization_task = UtilizationTasks(_logger=node_logger)
     utilization_task.start()
 
@@ -131,7 +131,7 @@ def utilization_collect_task():
 
 
 @shared_task
-def cpu_check_task(days=7, month_check=False):
+def cpu_check(days=7, month_check=False):
     check_task = CPUCheckTasks(_logger=check_logger)
     check_task.start(days=days, month_check=month_check)
 

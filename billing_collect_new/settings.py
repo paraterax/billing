@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_extensions',
+    'django_celery_beat',
     'collector',
 ]
 
@@ -142,13 +143,12 @@ COLLECTOR_CONFIG = {
 # Celery 在此配置
 CELERY_BROKER_URL = "redis://"
 CELERY_RESULT_BACKEND = "redis://"
-CELERY_TIMEZONE = TIME_ZONE
-CELERY_ENABLE_UTC = USE_TZ
+# CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = False
 CELERY_TASK_ROUTES = {
     'collector.tasks.*': {'queue': 'collect'},
     'collector.result.*': {'queue': 'result'}
 }
-
 
 try:
     from billing_collect_new.crontab_config import *

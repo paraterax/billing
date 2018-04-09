@@ -855,7 +855,7 @@ class BillFunctions:
         not_account_cost_set = self.query(daily_cost_sql, cluster)
 
         cluster_user_set = self.query(cluster_user_sql)
-        cluster_user_dict = dict([(_cu.id, _cu) for _cu in cluster_user_set])
+        cluster_user_dict = {_cu.id: _cu for _cu in cluster_user_set}
 
         for not_account_cost in not_account_cost_set:
             if not_account_cost.cluster_user_id not in cluster_user_dict:
