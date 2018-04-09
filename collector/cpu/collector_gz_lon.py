@@ -44,9 +44,6 @@ class CollectorGZLon(CollectorBase):
             tmp_collect_command_l.append(cc)
         return ' && '.join(tmp_collect_command_l)
 
-    def string_to_cpu_time(self, word):
-        return int(word)
-
     def fetch_node_utilization_rate(self):
         """
         GUANGZHOU idle 913

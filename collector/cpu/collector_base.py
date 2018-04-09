@@ -516,6 +516,7 @@ class CollectorBase(object):
     def save_node(self, node_info_dict, collect_type):
         """
         :param node_info_dict:
+        :param collect_type:
         {
             "GUANGZHOU_PP292": {
                 "alloc": {
@@ -595,105 +596,17 @@ class CollectorBase(object):
         params = (self.cluster.id, job_num, node_num, current_time, current_time)
         self.bill_func.sql_execute(insert_sql, params)
 
-    def extract(self, channel_file):
-        """
-        # Cluster            Login                ProperName    Account            Used       Partition
-        # -------            -----                ----------    -------            ----       ---------
-        # tianhe2            p-xuchunxiao11     p-xuchunxiao11   paratera        18687312      all
-        :return:
-        """
-        cpu_data_list = []
-        if isinstance(channel_file, paramiko.ChannelFile):
-            title_line = channel_file.readline()
-            title_line = title_line.lower()
-            cpu_data = namedtuple('CPU_DATA', title_line.split())
-            channel_file.readline()
-            for line in channel_file:
-                used_info = line.split()
-                if len(used_info) == 6 and used_info[-2].isdigit():
-                    partition = used_info[-1].split(',')
-                    partition = partition[0]
-                    used_info[-1] = partition
-                    used_info[-2] = float(used_info[-2])
-                    used_info = cpu_data(*used_info)
-                    cpu_data_list.append(used_info)
-        return cpu_data_list
-
-    def format_cpu_time(self, cpu_data_list):
-        """
-        按照用户，机时类型分类，将使用的机时累加
-        :return: [
-            format_cpu_data1, format_cpu_data2
-        ]
-        format_cpu_data: 类型：Format_CPU_DATA, 属性：user, cpu_time, type, partition
-        """
-        user_data_tmp = {}
-        user_data = []
-
-        cluster_partition_sql = "SELECT `name`, cluster_id, cpu_time_type_id FROM t_cluster_partition" \
-                                " WHERE cluster_id=%s"
-
-        cluster_part_set = self.bill_func.query(cluster_partition_sql, self.cluster_name)
-        cluster_part_list = [_cluster_part.name for _cluster_part in cluster_part_set]
-        cluster_part_dict = dict([((_c.cluster_id, _c.name), _c.cpu_time_type_id) for _c in cluster_part_set])
-
-        for cpu_data in cpu_data_list:
-            cpu_type = self.extract_cpu_type(cpu_data, cluster_part_dict)
-            partition = cpu_data.partition
-
-            if partition not in cluster_part_list:
-                self.save_cluster_partition(partition, cpu_type)
-                cluster_part_list.append(partition)
-
-            # 按用户名，机时类型，分区非组，叠加使用机时
-            proper_name = cpu_data.propername
-            union_key = (proper_name, partition, cpu_type)
-            cpu_time = cpu_data.used
-            if union_key in user_data_tmp:
-                user_data_tmp[union_key] += cpu_time
-            else:
-                user_data_tmp[union_key] = cpu_time
-
-        for _union_key, _cpu_time in user_data_tmp.items():
-            _user, _part, _type = _union_key
-            format_cpu_data = Format_CPU_Data(_user, _cpu_time, _type, _part)
-            user_data.append(format_cpu_data)
-
-        return user_data
-
-    def fetch_by_day(self, collect_command, check=False, **kwargs):
-        self.reconnect()
-        self.write_log("INFO", "Execute command: %s" % collect_command)
-        _, stdout, stderr = self.client.exec_command(collect_command, timeout=TIMEOUT)
-        cpu_data_list = self.extract(stdout)
-        format_cpu_data_list = self.format_cpu_time(cpu_data_list)
-
-        return format_cpu_data_list
-
-    def fetch_cpu_data(self, collect_date, collect_command, check=False):
-        """
-        # sh /THFS/home/pp_slccc/billing/yhreport.sh -U /THFS/home/pp_slccc/pac-userlist -S 2017-06-19  -E 2017-06-20 -t
-         Seconds
-        # Cluster            Login                ProperName    Account            Used       Partition
-        # -------            -----                ----------    -------            ----       ---------
-        # tianhe2            p-xuchunxiao11     p-xuchunxiao11   paratera        18687312      all
-        """
-        format_cpu_data_list = self.fetch_by_day(collect_command, check)
-
-        cluster_user_d = self.query_cluster_user_full_by_time(collect_date.strftime('%Y-%m-%d 00:00:00'))
-
-        for format_cpu_data in format_cpu_data_list:
-            if format_cpu_data.user not in cluster_user_d:
-                cluster_user_id = self.save_cluster_user(format_cpu_data.user)
-                cluster_user = Cluster_User_Type(cluster_user_id, format_cpu_data.user, self.cluster.id, None)
-                cluster_user_d[format_cpu_data.user] = cluster_user
-            else:
-                cluster_user = cluster_user_d[format_cpu_data.user]
-
-            daily_cost_id = self.bill_func.save_daily_cost(
-                cluster_user, collect_date, format_cpu_data.partition, format_cpu_data.type, format_cpu_data.cpu_time
-            )
-            self.bill_func.generate_bill(self.cluster.id, cluster_user, daily_cost_id, format_cpu_data.cpu_time)
+    def parse_output_to_json(self, output):
+        try:
+            raw_info = output.read()
+            if isinstance(raw_info, bytes):
+                raw_info = raw_info.decode()
+            json_obj = json.loads(raw_info)
+        except Exception as err:
+            self.write_log("EXCEPTION", err)
+            return None
+        else:
+            return json_obj
 
     def deduct(self):
         self.bill_func.deduct(self.cluster.id)
@@ -809,7 +722,10 @@ class CollectorBase(object):
 
         self.bill_func.check_account_log()
 
-    def _fetch_job(self, date_range):
+    def fetch_job(self, date_range):
+        raise NotImplementedError()
+
+    def _do_fetch_job(self, date_range):
         """
         如果超算获取作业列表的方式，或者返回的格式不一样，可以重写该方法，并返回统一的格式，这样可以不用fetch_job接口
         否则fetch_job接口也需要重写
@@ -870,13 +786,13 @@ class CollectorBase(object):
 
         return job_list
 
-    def fetch_job(self, date_range):
+    def fetch_job_bak(self, date_range):
         """
         :param date_range:
         :return:
         """
         try:
-            job_list = self._fetch_job(date_range)
+            job_list = self._do_fetch_job(date_range)
 
             cluster_part_dict = {}
             cluster_user_dict = {}
@@ -903,23 +819,54 @@ class CollectorBase(object):
             self.write_log("EXCEPTION", "fetch job error: %s", str(e))
             return None
 
-    def fetch(self, collect_date):
+    def fetch_cpu_time(self, collect_date):
         raise NotImplementedError()
 
-    def string_to_cpu_time(self, word):
-        raise NotImplementedError("string_to_cpu_time() not implemented")
+    def _do_fetch_cpu_time(self, command):
+        stdout, stderr = self.exec_command(command)
+
+        daily_cost_dict = self.parse_output_to_json(stdout) or {}
+        for collect_day, user_cost_dict in daily_cost_dict.items():
+            cluster_user_dict = self.query_cluster_user_full_by_time(collect_day)
+            for username, partition_cpu_dict in user_cost_dict.items():
+                if username in cluster_user_dict:
+                    cluster_user_obj = cluster_user_dict[username]
+                else:
+                    cluster_user_id = self.save_cluster_user(username)
+                    cluster_user_obj = self.query_cluster_user_by_id(cluster_user_id)
+                    cluster_user_dict[username] = cluster_user_obj
+
+                for partition, cpu_time in partition_cpu_dict.items():
+                    self.bill_func.save_daily_cost(cluster_user_obj, collect_day, partition, "CPU", cpu_time)
 
     def fetch_user(self):
         raise NotImplementedError()
 
-    def _fetch_node(self, command):
-        self.reconnect()
-        self.write_log("INFO", "Execute command: %s" % command)
-        _, stdout, stderr = self.client.exec_command(command, timeout=TIMEOUT)
+    def _do_fetch_user(self, command):
+        cluster_user_list = self.query_cluster_user()
+        stdout, stderr = self.exec_command(command)
 
-        statistics_node = [Node_Info_Type(*_line.strip().split()) for _line in stdout]
+        user_list = self.parse_output_to_json(stdout) or []
+        for user_info in user_list:
+            try:
+                username = user_info['user']
+            except KeyError:
+                continue
 
-        self.save_node(statistics_node)
+            if username in cluster_user_list:
+                continue
+
+            self.save_cluster_user(username)
+            cluster_user_list.append(username)
+
+    def fetch_node_state(self):
+        raise NotImplementedError()
+
+    def _do_fetch_node_state(self, command):
+        stdout, stderr = self.exec_command(command)
+
+        node_info_dict = self.parse_output_to_json(stdout) or {}
+        self.save_node(node_info_dict, 'nodes')
 
     def _fetch_count_pend_job(self, job_cmd, node_cmd):
         self.reconnect()
@@ -936,11 +883,14 @@ class CollectorBase(object):
 
         self.save_pend_info(pend_job_number, pend_node_number)
 
-    def fetch_node_utilization_rate(self):
+    def fetch_node_utilization(self):
         pass
 
-    def generate_collect_command(self, date_range, *args, **kwargs):
-        raise NotImplementedError()
+    def _do_fetch_node_utilization(self, command):
+        stdout, stderr = self.exec_command(command)
+
+        node_utilization_dict = self.parse_output_to_json(stdout)
+        self.save_node(node_utilization_dict, 'rate')
 
     def sync_group(self):
         select_sql = "SELECT * FROM t_group"
