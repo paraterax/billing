@@ -647,8 +647,8 @@ class CollectorBase(object):
         VALUES (%s, 'pend', %s, %s, %s, %s)
         """)
         for collect_time, pend_info in node_and_job_info.items():
-            params = (self.cluster.id, node_and_job_info['job_count'],
-                      node_and_job_info['node_count'], collect_time, collect_time)
+            params = (self.cluster.id, pend_info['job_count'],
+                      pend_info['node_count'], collect_time, collect_time)
             self.billing.sql_execute(insert_sql, params)
 
     def fetch_node_utilization(self):
