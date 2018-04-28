@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from collector.cpu.collector import *
 
-from collector.cpu.bill_functions import *
+from collector.cpu.billing import *
 
 logger = None
 
@@ -66,7 +66,7 @@ class CPUTasks(Tasks):
 
                 # 2. 采集机时，（如果已采集，则更新)
                 self.write_log('INFO', "%s BEGIN TO COLLECT. DATE: %s. %s", "-" * 10, collect_date, "-" * 10)
-                collector.fetch(date_range)
+                collector.fetch_cpu_time(date_range)
                 self.write_log('INFO', "%s END TO COLLECT. DATE: %s. %s", "-" * 10, collect_date, "-" * 10)
 
                 # 3. 生成账单（没有时间段限制，只要超算绑定了并行账号，就生成账单）
@@ -102,7 +102,6 @@ class NodeTasks(Tasks):
     def __init__(self, _logger=None):
         super(NodeTasks, self).__init__(_logger)
         tmp_collectors = list(self.collectors)
-        tmp_collectors.append(CollectorGZLon)
         self.collectors = tmp_collectors
 
     def start(self):
@@ -133,7 +132,7 @@ class NodeTasks(Tasks):
 class UtilizationTasks(Tasks):
     def __init__(self, _logger=None):
         super(UtilizationTasks, self).__init__(_logger)
-        self.collectors = [CollectorGZLon]
+        self.collectors = [CollectorGZ]
 
     def start(self):
         for collector_cls in self.collectors:

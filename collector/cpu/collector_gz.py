@@ -14,16 +14,6 @@ class CollectorGZ(CollectorBase):
         self._init_env = 'export PATH=/HOME/paratera_gz/.paratera_toolkit/miniconda2/bin/:$PATH ' \
                          '&& cd /HOME/paratera_gz/.paratera_toolkit/project/accounting/ && {}'
 
-        self.collect_command = [
-            'cat /WORK/paratera_gz/machine_collect_result/cpu/%s',
-            'cat /WORK/paratera_gz/machine_collect_result/cpu/new/%s'
-        ]
-        self._check_collect_command = [
-            'cat /WORK/paratera_gz/machine_collect_result/cpu/check/%s',
-            'cat /WORK/paratera_gz/machine_collect_result/cpu/new/%s'
-        ]
-        self._work_dir = '/WORK/paratera_gz/machine_collect_result'
-
     def fetch_user(self):
         command = self._init_env.format("python manage.py runscript slurm_sync_users")
         self._do_fetch_user(command)
@@ -46,7 +36,15 @@ class CollectorGZ(CollectorBase):
         self._do_fetch_cpu_time(command)
 
     def fetch_job(self, date_range):
-        pass
+        start_date, end_date = self.format_date_range(date_range)
+
+        command = self._init_env.format(
+            "python manage.py runscript slurm_sync_completed_jobs --script-args {0} {1}".format(
+                start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+            )
+        )
+
+        self._do_fetch_job(command)
 
     def fetch_node_state(self):
         """
@@ -105,9 +103,8 @@ class CollectorGZ(CollectorBase):
         }
         :return:
         """
-        self.reconnect()
         sql = "SELECT MAX(created_time) AS last_create_time FROM t_cluster_sc_node WHERE collect_type='nodes'"
-        time_info = self.bill_func.query(sql, first=True)
+        time_info = self.billing.query(sql, first=True)
         command = self._init_env.format(
             "python manage.py runscript slurm_sync_node_state --script-args '{0}'".format(
                 time_info.last_create_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -143,5 +140,8 @@ class CollectorGZ(CollectorBase):
         )
         self._do_fetch_node_utilization(command)
 
-    def fetch_count_pend_job(self):
-        pass
+    def fetch_pend_node_and_job_count(self):
+        command = self._init_env.format(
+            "python manage.py runscript slurm_sync_pend_node_and_job_count"
+        )
+        self._do_fetch_pend_node_and_job_count(command)

@@ -4,7 +4,7 @@ import re
 from functools import wraps
 from collections import namedtuple
 import MySQLdb
-from django.db import connection
+from django.db import connection, close_old_connections
 
 
 def query_set_wrapper(cursor):
@@ -18,6 +18,7 @@ def db_reconnect(func):
     def call(*args, **kwargs):
         for retry_time in range(3):
             try:
+                close_old_connections()
                 return func(*args, **kwargs)
             except MySQLdb.Error as err:
                 if retry_time == 2:
@@ -49,7 +50,6 @@ def sql_execute(sql, params, write_log, autocommit=True):
     update_reg = re.compile(r'^ *update .*$')
     delete_reg = re.compile(r'^ *delete .*$')
     cursor = connection.cursor()
-    write_log("INFO", "Execute SQL: %s, with params: %s", sql, str(params))
     tmp_sql = sql.replace('\n', '').lower()
     if insert_reg.match(tmp_sql):
         try:
@@ -109,6 +109,7 @@ def sql_execute_trans(sql_and_params_l, write_log):
     return True
 
 
+@db_reconnect
 def db_transaction(wrapper_func):
     @wraps(wrapper_func)
     def inner_func(*args, **kwargs):

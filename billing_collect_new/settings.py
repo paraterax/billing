@@ -150,6 +150,14 @@ CELERY_TASK_ROUTES = {
     'collector.result.*': {'queue': 'result'}
 }
 
+CLUSTER_JOB_KEY = {
+    "GUANGZHOU": "A",
+    "ParaGrid1": "Grid",
+    "ERA": "ERA",
+    "PART1": "A",
+    "LVLIANG": "A"
+}
+
 try:
     from billing_collect_new.crontab_config import *
 except ImportError:

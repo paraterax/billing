@@ -11,7 +11,6 @@ from collector.cpu.tasks import CPUTasks, CPUCheckTasks, NodeTasks, UtilizationT
 
 collector_class_dict = {
     "GUANGZHOU": CollectorGZ,
-    "GUANGZHOU_LON": (CollectorGZLon, "GUANGZHOU"),
     "PART1": CollectorCS,
     "ParaGrid": CollectorGrid,
     "LVLIANG": CollectorLL,

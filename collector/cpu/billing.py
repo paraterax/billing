@@ -1,7 +1,7 @@
 import importlib
 import json
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from textwrap import dedent
 
 import requests
@@ -79,11 +79,12 @@ def compare(obj1, obj2, attr_map):
     return not_equal_attr, new_attr_val
 
 
-class BillFunctions:
+class Billing:
 
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, cluster_id=None):
         self.write_log = logger_wrapper(logger)
         self._pay_user_d = {}
+        self.current_cluster_id = cluster_id
 
     def query(self, sql, *params, first=False):
         self.write_log("INFO", "Execute SQL: %s, with params: %s", sql, str(params))
@@ -158,11 +159,8 @@ class BillFunctions:
         )
 
         account_id, account_cpu, cost_cpu, cpu_remain, pay_status = (
-            daily_cost.account_id,
-            daily_cost.account_cpu_time,
-            daily_cost.cpu_time,
-            daily_cost.cpu_time_remain,
-            daily_cost.pay_status
+            daily_cost.account_id, daily_cost.account_cpu_time, daily_cost.cpu_time,
+            daily_cost.cpu_time_remain, daily_cost.pay_status
         )
 
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -217,7 +215,6 @@ class BillFunctions:
 
                     update_account_log_sql = update_account_log_sql.format(update_columns=', '.join(update_columns))
                     self.sql_execute(update_account_log_sql, params)
-
         else:       # 错误账单，已完成付费了
             # 新建一条账单
             # 1. 机时 ＝ 新采集机时 － 旧账单机时
@@ -239,51 +236,20 @@ class BillFunctions:
                 (update_account_log_sql, update_params)
             ])
 
-    def update_bill(self, daily_cost_id, cpu_time):
-        select_sql = "SELECT id, cpu_time, pay_status, cpu_time_remain FROM t_account_log where daily_cost_id=%s"
-        account_log = self.query(select_sql, daily_cost_id, first=True)
-
-        if account_log is None:
-            need_new = True
-        else:
-            need_new = False
-            if account_log.cpu_time != float(cpu_time):
-                sql = dedent("""
-                SELECT
-                    t_daily_cost.cpu_time,
-                    t_account_log.id AS account_id,
-                    t_account_log.pay_status,
-                    t_account_log.cpu_time AS account_cpu_time,
-                    t_account_log.cpu_time_remain,
-                    t_account_log.user_id,
-                    t_account_log.group_id,
-                    t_account_log.cpu_time_user_id,
-                    t_account_log.product_id, t_account_log.cluster_id
-                FROM
-                    t_daily_cost
-                        INNER JOIN
-                    t_account_log ON t_account_log.daily_cost_id = t_daily_cost.id
-                WHERE t_daily_cost.id = %s
-                """)
-
-                daily_cost = self.query(sql, daily_cost_id, first=True)
-                self._calc_balance(daily_cost)
-
-        return need_new
-
-    def update_daily_cost(self, cluster_user, collect_date, partition, cpu_type, cpu_time):
+    def update_daily_cost(self, cluster_user_id, collect_date, partition, cpu_type, cpu_time):
         daily = days_from_1970(collect_date)
 
         if partition is not None:
             select_sql = "SELECT id, cpu_time, user_id FROM t_daily_cost WHERE cluster_user_id=%s AND daily=%s " \
                      "AND cluster_id=%s AND `partition`=%s AND cpu_time_type_id=%s AND account=%s AND was_removed=0"
-            params = (cluster_user.id, daily, cluster_user.cluster_id, partition, cpu_type,
-                      'NOT_PAPP_%s' % cluster_user.id)
+            params = (
+                cluster_user_id, daily, self.current_cluster_id, partition, cpu_type, 'NOT_PAPP_%s' % cluster_user_id
+            )
         else:
             select_sql = "SELECT id, cpu_time, user_id FROM t_daily_cost WHERE cluster_user_id=%s AND daily=%s " \
                          "AND cluster_id=%s AND `partition` IS NULL AND cpu_time_type_id=%s " \
                          "AND account=%s AND was_removed=0"
-            params = (cluster_user.id, daily, cluster_user.cluster_id, cpu_type, 'NOT_PAPP_%s' % cluster_user.id)
+            params = (cluster_user_id, daily, self.current_cluster_id, cpu_type, 'NOT_PAPP_%s' % cluster_user_id)
 
         # 应该根据cluster_user_id 而不是user_id，因为user_id 可能之前没有值，后来绑定了，就有值了，但是daily_cost中可能没有
         # if cluster_user.user_id is None:
@@ -306,10 +272,6 @@ class BillFunctions:
                 changed = True
                 update_sql += "cpu_time=%s, update_time=%s "
                 params.extend([cpu_time, datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
-            if cluster_user.user_id is not None and daily_cost.user_id is None:
-                changed = True
-                update_sql += "user_id=%s "
-                params.append(cluster_user.user_id)
 
             if changed:
                 update_sql += 'WHERE id=%s'
@@ -318,9 +280,9 @@ class BillFunctions:
 
         return need_insert, daily_cost_id
 
-    def save_daily_cost(self, cluster_user, collect_date, partition, cpu_type, cpu_time):
+    def save_daily_cost(self, cluster_user_id, collect_date, partition, cpu_type, cpu_time):
         not_exists, daily_cost_id = self.update_daily_cost(
-            cluster_user, collect_date, partition, cpu_type, cpu_time)
+            cluster_user_id, collect_date, partition, cpu_type, cpu_time)
 
         if not not_exists:
             return daily_cost_id
@@ -330,7 +292,7 @@ class BillFunctions:
         (id, product_id, user_id, daily, cluster_id, `partition`, collect_date, daily_type, cpu_time_type_id, account,
          cluster_user_id, cpu_time, created_time, update_time, was_removed)
         VALUES
-        (%s, 'PAPP', %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, 0)
+        (%s, 'PAPP', NULL, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, 0)
         """
         daily_cost_id = self.generate_id()
         daily = days_from_1970(collect_date)
@@ -339,15 +301,14 @@ class BillFunctions:
             collect_date = collect_date.strftime('%Y-%m-%d 00:00:00')
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        params = (daily_cost_id, cluster_user.user_id, daily, cluster_user.cluster_id,
-                  partition, collect_date, cpu_type,
-                  'NOT_PAPP_%d' % cluster_user.id, cluster_user.id, cpu_time, current_time, current_time)
+        params = (daily_cost_id, daily, self.current_cluster_id, partition, collect_date, cpu_type,
+                  'NOT_PAPP_%d' % cluster_user_id, cluster_user_id, cpu_time, current_time, current_time)
 
         ret = self.sql_execute(insert_sql, params)
 
         if ret is False:
             # insert failed, maybe already exists in the table, so update the record
-            _, daily_cost_id = self.update_daily_cost(cluster_user, collect_date, partition, cpu_type, cpu_time)
+            _, daily_cost_id = self.update_daily_cost(cluster_user_id, collect_date, partition, cpu_type, cpu_time)
 
         return daily_cost_id
 
@@ -376,32 +337,43 @@ class BillFunctions:
 
     def new_account_log(self, group_id, pay_user_id, user_id, cluster_id, daily_cost_id, cpu_time):
         account_log_id = self.generate_id()
-        insert_sql = """
-                INSERT INTO t_account_log
-                (id, user_id, group_id, cpu_time_user_id, product_id, cluster_id, daily_cost_id, cpu_time, cpu_time_remain,
-                 account_time, pay_status, pay_time, stock_status, stock_time, created_time, updated_time)
-                VALUES
-                (%s, %s, %s, %s, 'PAPP', %s, %s, %s, 0, %s, 'new', %s, 'new', %s, %s, %s)
-                """
+        insert_sql = dedent("""
+        INSERT INTO t_account_log
+        (id, user_id, group_id, cpu_time_user_id, product_id, cluster_id, daily_cost_id, cpu_time, cpu_time_remain,
+         account_time, pay_status, pay_time, stock_status, stock_time, created_time, updated_time)
+        VALUES
+        (%s, %s, %s, %s, 'PAPP', %s, %s, %s, 0, %s, 'new', %s, 'new', %s, %s, %s)
+        """)
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         params = (account_log_id, pay_user_id, group_id, user_id, cluster_id, daily_cost_id, cpu_time, current_time,
                   None, None, current_time, current_time)
 
         self.sql_execute(insert_sql, params)
 
-    def generate_bill(self, cluster_id, cluster_user, daily_cost_id, cpu_time):
-        user_id = cluster_user.user_id
+    def check_account_log(self, cluster_id):
+        different_daily_cost_select_sql = dedent("""
+        SELECT
+            t_daily_cost.cpu_time,
+            t_daily_cost.cluster_id,
+            t_account_log.cpu_time AS account_cpu_time,
+            t_account_log.cpu_time_remain,
+            t_account_log.pay_status,
+            t_account_log.id AS account_id,
+            t_account_log.user_id,
+            t_account_log.group_id,
+            t_account_log.cpu_time_user_id,
+            t_account_log.product_id
+        FROM t_daily_cost
+            INNER JOIN
+            t_account_log ON t_account_log.daily_cost_id = t_daily_cost.id
+                AND t_account_log.cpu_time != t_daily_cost.cpu_time
+        WHERE t_daily_cost.cluster_id=%s
+        """)
 
-        if user_id is None:
-            return
+        different_daily_cost_list = self.query(different_daily_cost_select_sql, cluster_id)
 
-        need_new = self.update_bill(daily_cost_id, cpu_time)
-
-        if need_new:
-            group_id, pay_user_id = self.get_pay_info(user_id)
-            self.new_account_log(
-                group_id, pay_user_id, cluster_user.user_id, cluster_id, daily_cost_id, cpu_time
-            )
+        for different_daily_cost in different_daily_cost_list:
+            self._calc_balance(different_daily_cost)
 
     def get_old_price(self, user_id):
         sale_slip_sql = """
@@ -447,7 +419,7 @@ class BillFunctions:
             return price_detail.price
 
         # 如果配置了不使用标准资费，则返回None
-        if not collector_settings.STANDARD_PRICE:
+        if not collector_settings.get('STANDARD_PRICE', False):
             return None
 
         # 如果合同中没有指定单价，则获取标准资费
@@ -530,7 +502,7 @@ class BillFunctions:
         if contract_stored is None:
             # 如果配置了忽略未配置的队列计费，即IGNORE_MISSING_QUEUE=True,
             # 则在找不到队列单价的时候，不进行计费
-            if not collector_settings.IGNORE_MISSING_QUEUE:
+            if not collector_settings.get('IGNORE_MISSING_QUEUE', False):
                 ret = self.get_old_price(user_id)
                 if ret is not None:
                     sale_slip, price = ret
@@ -540,7 +512,7 @@ class BillFunctions:
             price = self.get_standard_price(contract_stored, cluster, partition, business_item, collect_date)
 
             # 如果未找到新的资费，又允许使用旧的资费的话
-            if price is None and not collector_settings.IGNORE_MISSING_QUEUE:
+            if price is None and not collector_settings.get('IGNORE_MISSING_QUEUE', False):
                 contract_item = None
                 ret = self.get_old_price(user_id)
                 if ret is not None:
@@ -548,7 +520,7 @@ class BillFunctions:
 
         return contract_item, sale_slip, price
 
-    def deduct_contract_sale_slip(self, contract_item, sale_slip, price, cpu_time, cpu_time_remain, commit=True):
+    def deduct_contract_item_and_sale_slip(self, contract_item, sale_slip, price, cpu_time, cpu_time_remain):
         """
         正常情况下每一个sale_slip 最多对应一条contract_item（或没有），并且余额应该保持一致,
         如果sale_slip = None， 那么肯定contract_item也为None， 即便不为None， 也不能扣费啊
@@ -602,13 +574,13 @@ class BillFunctions:
         return cash_real_deducted, cpu_time_remain
 
     def account_log_record(self, account_log, cpu_time_remain, commit=True):
-        # sale_slip = sale_slip if isinstance(sale_slip, (str, int)) else sale_slip.id
         pay_status = 'done' if cpu_time_remain <= 0 else 'new'
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         pay_time = current_time if pay_status == 'done' else None
-        update_account_sql = "UPDATE t_account_log" \
-                             " SET cpu_time_remain=%s, pay_status=%s, pay_time=%s, updated_time=%s" \
-                             " WHERE id = %s"
+        update_account_sql = dedent("""
+        UPDATE t_account_log
+        SET cpu_time_remain=%s, pay_status=%s, pay_time=%s, updated_time=%s
+        WHERE id = %s""")
         params = (cpu_time_remain, pay_status, pay_time, current_time, account_log.id)
         self.sql_execute(update_account_sql, params, commit)
 
@@ -658,8 +630,8 @@ class BillFunctions:
                 break
 
             # sale_slip 和 contract_item 扣费完成
-            cash_cost, cpu_time_remain = self.deduct_contract_sale_slip(
-                contract_item, sale_slip, price, cpu_time, cpu_time_remain, commit=False
+            cash_cost, cpu_time_remain = self.deduct_contract_item_and_sale_slip(
+                contract_item, sale_slip, price, cpu_time, cpu_time_remain
             )
 
             self.account_log_record(account_log, cpu_time_remain, commit=False)
@@ -675,30 +647,38 @@ class BillFunctions:
         对多扣的用户机时按照当时的单价，给对应的合同回款
         :return:
         """
-        sale_slip_id, account_log_id, unit_price, cpu_time_back = (
-            account_log.sale_slip_id,
-            account_log.id,
-            account_log.unit_price,
-            account_log.cpu_time
-        )
+
+        sql = dedent("""
+        SELECT
+            sale_slip_id,
+            unit_price
+        FROM
+            t_sale_slip_account_log
+        WHERE account_log_id=%s
+        """)
+
+        sale_slip_account_log = self.query(sql, account_log.id, first=True)
+
         # 多扣了机时，按照当时的单价，进行回款
         # 没有单价，说明之前没有扣过费，暂不做处理
-        if unit_price is None or sale_slip_id is None:
+        if sale_slip_account_log is None:
             return
 
+        back_cpu_time = account_log.cpu_time
+
         sale_slip_sql = "SELECT income, cash_remain FROM t_sale_slip where id=%s"
-        sale_slip = self.query(sale_slip_sql, sale_slip_id, first=True)
+        sale_slip = self.query(sale_slip_sql, sale_slip_account_log.sale_slip_id, first=True)
         if sale_slip is None:
             return
 
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        back_money = unit_price * (float(cpu_time_back) / 3600)
+        back_money = sale_slip_account_log.unit_price * (float(back_cpu_time) / 3600)
 
         # 更新充值单
         update_sale_slip_sql = "UPDATE t_sale_slip SET income=%s, cash_remain=%s, updated_time=%s WHERE id=%s"
         income_check = sale_slip.income + back_money
         cash_remain_check = sale_slip.cash_remain - back_money
-        update_sale_slip_params = (income_check, cash_remain_check, current_time, sale_slip_id)
+        update_sale_slip_params = (income_check, cash_remain_check, current_time, sale_slip_account_log.sale_slip_id)
         self.sql_execute(update_sale_slip_sql, update_sale_slip_params, commit=False)
 
         # 同步contract_item
@@ -710,17 +690,17 @@ class BillFunctions:
         WHERE
             sale_slip_id = %s
         """)
-        sync_contract_params = (sale_slip_id,)
+        sync_contract_params = (sale_slip_account_log.sale_slip_id,)
         self.sql_execute(sync_contract_sql, sync_contract_params, commit=False)
 
         # 更新账单付费状态为 done
         update_account_log_sql = "UPDATE t_account_log SET pay_status='done', pay_time=%s, updated_time=%s WHERE id=%s"
-        update_account_log_params = (current_time, current_time, account_log_id)
+        update_account_log_params = (current_time, current_time, account_log.id)
         self.sql_execute(update_account_log_sql, update_account_log_params, commit=False)
 
         # 添加一条新的账单和充值单的消费记录
-        self.account_slip_record(account_log, sale_slip_id, unit_price, back_money,
-                                 notes='Sale Slip Check Back', commit=False)
+        self.account_slip_record(account_log, sale_slip_account_log.sale_slip_id, sale_slip_account_log.unit_price,
+                                 back_money, notes='Sale Slip Check Back', commit=False)
 
     def update_pay_user(self):
         """
@@ -728,18 +708,21 @@ class BillFunctions:
         用户消费机时后，没钱付费，之后更新了付费账号后，需要将这部分费用，记录到新的付费账号上。
         :return:
         """
-        account_log_not_pay_sql = """
-        SELECT DISTINCT
-            user_id AS pay_user_id, cpu_time_user_id
+        account_log_not_pay_sql = dedent("""
+        SELECT
+            DISTINCT user_id AS pay_user_id,
+            cpu_time_user_id
         FROM t_account_log
         WHERE pay_status='new'
-        """
+        """)
 
-        update_pay_user_sql = """
+        update_pay_user_sql = dedent("""
         UPDATE t_account_log
         SET user_id=%s, group_id=%s
-        WHERE cpu_time_user_id=%s AND user_id=%s AND pay_status='new'
-        """
+        WHERE cpu_time_user_id=%s
+            AND user_id=%s
+            AND pay_status='new'
+        """)
 
         not_pay_user_set = self.query(account_log_not_pay_sql)
 
@@ -750,7 +733,7 @@ class BillFunctions:
                     pay_user_id, group_id, not_pay_user.cpu_time_user_id, not_pay_user.pay_user_id
                 ))
 
-    def deduct_additional_bill(self, cluster):
+    def deduct_sub_account_log(self, cluster):
         # 扣除补充的账单
         account_log_sql = """
         SELECT
@@ -761,26 +744,13 @@ class BillFunctions:
             account_log.id,
             account_log.user_id,
             account_log.cpu_time,
-            account_log.cpu_time_remain,
-            sale_account.sale_slip_id,
-            sale_account.unit_price
+            account_log.cpu_time_remain
         FROM
             t_account_log AS account_log
                 INNER JOIN
             t_account_log ON account_log.master_account_id = t_account_log.id
                 INNER JOIN
             t_daily_cost ON t_account_log.daily_cost_id = t_daily_cost.id
-                LEFT JOIN
-            (SELECT
-                account_log_id, sale_slip_id, unit_price
-            FROM
-                t_sale_slip_account_log
-            WHERE
-                id IN (SELECT
-                        MAX(id)
-                    FROM
-                        t_sale_slip_account_log
-                    GROUP BY account_log_id)) AS sale_account ON sale_account.account_log_id = account_log.master_account_id
         WHERE
             t_daily_cost.cluster_id = %s
                 AND account_log.pay_status = 'new'
@@ -796,16 +766,20 @@ class BillFunctions:
 
     def deduct(self, cluster):
         # 将cpu_time = 0 的账单，直接设置为已付费
-        self.sql_execute(dedent(
-            """UPDATE t_account_log
-               SET pay_status='done', pay_time=%s
-               WHERE cluster_id=%s AND cpu_time=0 AND pay_status='new'
-            """
-        ), (cluster, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        self.sql_execute(
+            dedent("""
+            UPDATE t_account_log
+            SET pay_status='done', pay_time=%s
+            WHERE cluster_id=%s
+                AND cpu_time=0
+                AND pay_status='new'
+            """),
+            (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), cluster)
+        )
 
         # 对于需要回款的使用机时进行扣费
         # 先进行回款，在进行扣费，modify by wangxba, at 2018-03-14
-        self.deduct_additional_bill(cluster)
+        self.deduct_sub_account_log(cluster)
 
         # 获取未完成扣费的消费
         account_log_sql = """
@@ -836,7 +810,8 @@ class BillFunctions:
         for account_log in account_log_set:
             self._deduct_account_log(account_log)
 
-    def generate(self, cluster):
+    @db_transaction
+    def generate_account_log(self, cluster):
         """
         生成账单，检查t_daily_cost中未生成账单的记录，入到账单里。
         1. 检查t_daily_cost 的消费者，是否绑定了并行账号
@@ -844,90 +819,115 @@ class BillFunctions:
         :return:
         """
 
-        daily_cost_sql = """
-        SELECT * FROM t_daily_cost
-        WHERE t_daily_cost.user_id IS NULL AND cluster_id = %s AND was_removed = 0
-        """
+        daily_cost_sql = dedent("""
+        SELECT
+            t_daily_cost.*,
+            t_cluster_user.user_id AS bind_user_id
+        FROM t_daily_cost
+            INNER JOIN
+            t_cluster_user ON t_daily_cost.cluster_user_id = t_cluster_user.id
+        WHERE t_daily_cost.user_id IS NULL
+            AND t_daily_cost.cluster_id = %s
+            AND t_daily_cost.was_removed = 0
+            AND t_cluster_user.user_id IS NOT NULL
+        """)
 
         daily_cost_update_sql = "UPDATE t_daily_cost SET user_id=%s WHERE id=%s"
-        cluster_user_sql = "SELECT * FROM t_cluster_user WHERE user_id IS NOT NULL"
 
         not_account_cost_set = self.query(daily_cost_sql, cluster)
 
-        cluster_user_set = self.query(cluster_user_sql)
-        cluster_user_dict = {_cu.id: _cu for _cu in cluster_user_set}
-
         for not_account_cost in not_account_cost_set:
-            if not_account_cost.cluster_user_id not in cluster_user_dict:
-                continue
+            self.sql_execute(daily_cost_update_sql, (not_account_cost.bind_user_id, not_account_cost.id))
 
-            _cluster_user = cluster_user_dict[not_account_cost.cluster_user_id]
+            group_id, pay_user_id = self.get_pay_info(not_account_cost.bind_user_id)
 
-            self.sql_execute(daily_cost_update_sql, (_cluster_user.user_id, not_account_cost.id))
+            self.new_account_log(
+                group_id, pay_user_id,
+                not_account_cost.bind_user_id, cluster, not_account_cost.id, not_account_cost.cpu_time
+            )
 
-            # try:
-            #     collect_date = datetime.strptime(not_account_cost.collect_date, '%Y-%m-%d')
-            # except ValueError:
-            #     collect_date = datetime.strptime(not_account_cost.collect_date, '%Y-%m-%d %H:%M:%S')
-
-            # group_id, pay_user_id = self.get_pay_info(_cluster_user.user_id, collect_date)
-            group_id, pay_user_id = self.get_pay_info(_cluster_user.user_id)
-
-            self.new_account_log(group_id, pay_user_id, _cluster_user.user_id, _cluster_user.cluster_id,
-                                 not_account_cost.id, not_account_cost.cpu_time)
-
-        # 更新已有账单的付费账号，因为有的账号，可能消费了机时，生成了账单，但是没有完成扣费（因为没有充值单）
-        # 但是后来绑定了付费账号，这部分的账单还是完不成扣费，需要将付费账号，改为新绑定的账号才可以
-        # add at 2018-02-06
-        self.update_pay_user()
-
-    def check_account_log(self):
+    def income_statistics(self):
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # 更新预存合同，赠送的账单不统计收入
+        stored_update_sql = """
+        UPDATE
+            t_sale_slip
+        SET income=total_price-cash_remain, updated_time=%s
+        WHERE sale_slip_type='stored' AND total_price != income
         """
-        检查是否有和daily_cost表中的机时不对应的记录，如果有：
-        对多扣或少扣的机时进行回款或扣费
+        self.sql_execute(stored_update_sql, (current_time,))
 
-        case 1: pay_status='new' cpu_time_remain > 0，这种情况，是支付了一部分费用
-            1) cpu_time=500, cpu_time_remain=300, paid=200, 最后知道实际消费＝200，那么正好付费完成，更新
-                pay_status='done' cpu_time=200, cpu_time_remain=0, pay_time=now
-            2) cpu_time=500, cpu_time_remain=300, paid=200, 最后实际消费＝150， 那么多支付了50，更新
-                pay_status='done', cpu_time=150, cpu_time_remain=0, pay_time=now,
-                并生成一个新的account_log，master_account_id = current_account_log.id
-            3) cpu_time=500, cpu_time_remain=300, paid=200, 最后实际消费＝250， 那么还剩50没有支付， 更新
-                cpu_time=250, cpu_time_remain=50
-        case 2: pay_status='new', cpu_time_remain == 0，这种情况，是还没有支付动作， 更新：
-            cpu_time = daily_cost.cpu_time
-        case 3: pay_status='done', 这种情况，已经完成支付，没有更新动作。
-            生成一个新的account_log记录，master_account_id = current_account_log.id
-        :return:
+        # 更新包时段的合同（已经过期的合同）
+        period_update_sql = """
+        UPDATE
+            t_sale_slip
+        SET income=total_price, updated_time=%s
+        WHERE sale_slip_type IN ('contract_period', 'contract_account', 'service')
+            AND expired_time <= %s AND is_internal = 0
         """
-        sql = """
-        SELECT
-            t_daily_cost.cpu_time,
-            t_account_log.id AS account_id,
-            t_account_log.pay_status,
-            t_account_log.cpu_time AS account_cpu_time,
-            t_account_log.cpu_time_remain,
-            t_account_log.user_id,
-            t_account_log.group_id,
-            t_account_log.cpu_time_user_id,
-            t_account_log.product_id, t_account_log.cluster_id
-        FROM
-            t_daily_cost
-                INNER JOIN
-            t_account_log ON t_account_log.daily_cost_id = t_daily_cost.id
-                AND t_account_log.cpu_time != t_daily_cost.cpu_time
+        self.sql_execute(period_update_sql, (current_time, current_time))
+
+        # 更新包时段的合同（没有过期的合同）
+        period_update_sql_2 = """
+        UPDATE
+            t_sale_slip
+        SET income=total_price * (DATEDIFF(now(), effective_time) / DATEDIFF(expired_time, now())), updated_time=%s
+        WHERE expired_time IS NOT NULL AND effective_time IS NOT NULL
+            AND sale_slip_type IN ('contract_period', 'contract_account', 'service')
+            AND expired_time > %s AND is_internal = 0
         """
-        daily_cost_l = self.query(sql)
+        self.sql_execute(period_update_sql_2, (current_time, current_time))
 
-        for daily_cost in daily_cost_l:
-            self._calc_balance(daily_cost)
+        sync_contract_sql = """
+        UPDATE
+            t_contract_item
+        INNER JOIN
+            t_sale_slip ON t_contract_item.sale_slip_id = t_sale_slip.id
+        SET t_contract_item.cash_remain = t_sale_slip.cash_remain,
+            t_contract_item.amount = t_sale_slip.total_price
+        """
 
+        self.sql_execute(sync_contract_sql, [])
+
+    def sync_group(self):
+        select_sql = "SELECT * FROM t_group"
+        insert_sql = "INSERT INTO t_group (id, pay_user_id, created_time, updated_time) VALUES (%s, %s,%s, %s)"
+        update_sql = "UPDATE t_group SET pay_user_id=%s, updated_time=%s WHERE id=%s"
+
+        group_all = self.query(select_sql)
+        group_all_d = dict([(str(_g.id), _g) for _g in group_all])
+        try:
+            all_group_url = "https://user.paratera.com/user/api/inner/organization/child/info?service=BILL&id=0"
+            all_group_resp = requests.get(url=all_group_url, verify=False)
+            if all_group_resp.ok:
+                group_text = all_group_resp.text
+                self.write_log("INFO", "Return all group info: %s", group_text)
+                group_list = json.loads(group_text)
+                for group in group_list:
+                    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    if str(group['id']) not in group_all_d:
+                        self.sql_execute(insert_sql, (group['id'], None, current_time, current_time))
+                    else:
+                        group = group_all_d[str(group['id'])]
+                        if group.pay_user_id is not None:
+                            # 判断用户是不是组内的用户
+                            url = "https://user.paratera.com/user/api/inner/validate/organization/directly/under/user" \
+                                  "?service=BILL&user_id=%s&organization_id=%s" % (group.pay_user_id, group.id)
+                            is_group_user_req = requests.get(url=url, verify=False)
+                            if is_group_user_req.ok:
+                                is_group_user = json.loads(is_group_user_req.text)
+                                if not is_group_user['success']:
+                                    self.sql_execute(update_sql, (None, current_time, group.id))
+            else:
+                self.write_log("ERROR", "synchronize group filed, the http code is %s" % all_group_resp.status_code)
+        except Exception as err:
+            self.write_log('EXCEPTION', str(err))
 
 __all__ = [
-    'logger_wrapper', 'compare', 'days_from_1970', 'BillFunctions'
+    'logger_wrapper', 'compare', 'days_from_1970', 'Billing'
 ]
 
 
 if __name__ == '__main__':
-    bill_func = BillFunctions()
+    bill_func = Billing()
     bill_func.check_account_log()
