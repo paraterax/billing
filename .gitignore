@@ -105,8 +105,8 @@ venv.bak/
 
 # mypy
 .mypy_cache/
-billing_collect_new/collect_config.py
-billing_collect_new/database_dev.cnf
-billing_collect_new/database_prod.cnf
+# billing_collect_new/collect_config.py
+# billing_collect_new/database_dev.cnf
+# billing_collect_new/database_prod.cnf
 logs/
 tasks/

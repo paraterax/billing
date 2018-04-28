@@ -1,0 +1,6 @@
+[client]
+database = billing_cnic
+host = db
+user = root
+password = ai2018@cnic
+default-character-set = utf8
