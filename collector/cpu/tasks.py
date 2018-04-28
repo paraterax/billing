@@ -71,7 +71,7 @@ class CPUTasks(Tasks):
 
                 # 3. 生成账单（没有时间段限制，只要超算绑定了并行账号，就生成账单）
                 self.write_log('INFO', "%s BEGIN TO GENERATE BILL %s", "-" * 10, "-" * 10)
-                collector.generate()
+                collector.generate_account_log()
                 self.write_log('INFO', "%s END TO GENERATE BILL %s", "-" * 10, "-" * 10)
 
                 # 4. 扣费（默认延迟7天扣费)
@@ -113,7 +113,7 @@ class NodeTasks(Tasks):
 
                 # 1. 采集节点
                 self.write_log('INFO', "%s BEGIN TO COLLECT NODE. %s", "-" * 10, "-" * 10)
-                collector.fetch_node()
+                collector.fetch_node_state()
                 self.write_log('INFO', "%s END TO COLLECT NODE. %s", "-" * 10, "-" * 10)
 
                 # 2. 采集排队的作业节点
@@ -141,7 +141,7 @@ class UtilizationTasks(Tasks):
                 collector = collector_cls(_logger=self.logger)
                 self.write_log('INFO', '%s BEGIN CLUSTER UTILIZATION COLLECT: %s %s', '=' * 15, collector.cluster.id, '=' * 15)
 
-                collector.fetch_node_utilization_rate()
+                collector.fetch_node_utilization()
 
                 self.write_log('INFO', '%s END CLUSTER UTILIZATION COLLECT: %s %s', '=' * 15, collector.cluster.id, '=' * 15)
             except Exception as err:
@@ -174,7 +174,7 @@ class CPUCheckTasks(Tasks):
                                collector.cluster_name,
                                start_day.strftime('%Y-%m-%d %H:%M:%S'), current_day.strftime('%Y-%m-%d %H:%M:%S'),
                                '=' * 15)
-                collector.check_bill((start_day, end_day))
+                collector.check_account_log((start_day, end_day))
                 self.write_log('INFO', '%s END TO CHECK BILL OF CLUSTER:[%s] FROM %s TO %s %s', '=' * 15,
                                collector.cluster_name,
                                start_day.strftime('%Y-%m-%d %H:%M:%S'), current_day.strftime('%Y-%m-%d %H:%M:%S'),
