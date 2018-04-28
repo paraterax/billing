@@ -103,11 +103,12 @@ class CollectorGZ(CollectorBase):
         }
         :return:
         """
-        sql = "SELECT MAX(created_time) AS last_create_time FROM t_cluster_sc_node WHERE collect_type='nodes'"
+        sql = "SELECT MAX(created_time) AS last_create_time FROM t_cluster_sc_node WHERE " \
+              "cluster_id LIKE '%%GUANGZHOU%%' AND collect_type='nodes'"
         time_info = self.billing.query(sql, first=True)
         command = self._init_env.format(
             "python manage.py runscript slurm_sync_node_state --script-args '{0}'".format(
-                time_info.last_create_time.strftime("%Y-%m-%d %H:%M:%S")
+                time_info.last_create_time.strftime("%Y-%m-%dT%H:%M:%S")
             )
         )
         self._do_fetch_node_state(command)
@@ -141,7 +142,12 @@ class CollectorGZ(CollectorBase):
         self._do_fetch_node_utilization(command)
 
     def fetch_pend_node_and_job_count(self):
+        sql = "SELECT MAX(created_time) AS last_create_time FROM t_cluster_sc_count_job WHERE " \
+              "cluster_id LIKE '%%GUANGZHOU%%' ANd collect_type='nodes'"
+        time_info = self.billing.query(sql, first=True)
         command = self._init_env.format(
-            "python manage.py runscript slurm_sync_pend_node_and_job_count"
+            "python manage.py runscript slurm_sync_node_pend --script-args %s" % time_info.last_create_time.strftime(
+                '%Y-%m-%dT%H:%M:%S'
+            )
         )
         self._do_fetch_pend_node_and_job_count(command)
