@@ -57,7 +57,7 @@ class CollectorLL(CollectorBase):
 
     def fetch_pend_node_and_job_count(self):
         sql = "SELECT MAX(created_time) AS last_create_time FROM t_cluster_sc_count_job WHERE " \
-              "cluster_id LIKE '%%PART1%%' AND collect_type='nodes'"
+              "cluster_id LIKE '%%PART1%%'"
         time_info = self.billing.query(sql, first=True)
         command = self._init_env.format(
             "python manage.py runscript slurm_sync_node_pend %s" % time_info.last_create_time.strftime(
