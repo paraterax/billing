@@ -1,20 +1,12 @@
 import os
 
 if os.environ.get('BILLING_COLLECT_DEBUG'):
-    base_dir = '/users/wangxb/Work/key_files'
+    base_dir = '/root/key_files'
 else:
     base_dir = '/oits/service/key_files'
 
 CPU_COLLECT_CONFIG = {
     "GUANGZHOU": {
-        "IP": "182.92.197.51",
-        "PORT": 22,
-        "USER": "paratera_gz",
-        "PASSWORD": None,
-        "KEY_FILE": os.path.join(base_dir, "guangzhou/paratera_gz.id"),
-        "NODELIST": []
-    },
-    "GUANGZHOU_LON": {
         # "IP": "10.171.66.215",
         "IP": "182.92.197.51",
         "PORT": 5577,

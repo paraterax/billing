@@ -118,7 +118,7 @@ class NodeTasks(Tasks):
 
                 # 2. 采集排队的作业节点
                 self.write_log('INFO', "%s BEGIN TO COLLECT PEND NODE. %s", "-" * 10, "-" * 10)
-                collector.fetch_count_pend_job()
+                collector.fetch_pend_node_and_job_count()
                 self.write_log('INFO', "%s END TO COLLECT PEND NODE. %s", "-" * 10, "-" * 10)
 
                 self.write_log('INFO', '%s END CLUSTER NODE COLLECT: %s %s', '=' * 15, collector.cluster.id, '=' * 15)
