@@ -4,7 +4,7 @@ import re
 from functools import wraps
 from collections import namedtuple
 import MySQLdb
-from django.db import connection, close_old_connections
+from django.db import connection, connections,close_old_connections
 
 
 def query_set_wrapper(cursor):
@@ -29,8 +29,12 @@ def db_reconnect(func):
 
 
 @db_reconnect
-def query(sql, *params, first=False):
-    cursor = connection.cursor()
+def query(sql, *params, first=False, using=None):
+    if using is not None:
+        conn = connections[using]
+    else:
+        conn = connection
+    cursor = conn.cursor()
     cursor.execute(sql, params)
     query_set = query_set_wrapper(cursor)
     cursor.close()
@@ -45,11 +49,15 @@ def query(sql, *params, first=False):
 
 
 @db_reconnect
-def sql_execute(sql, params, write_log, autocommit=True):
+def sql_execute(sql, params, write_log, autocommit=True, using=None):
     insert_reg = re.compile(r'^ *insert .*$')
     update_reg = re.compile(r'^ *update .*$')
     delete_reg = re.compile(r'^ *delete .*$')
-    cursor = connection.cursor()
+    if using is not None:
+        conn = connections[using]
+    else:
+        conn = connection
+    cursor = conn.cursor()
     tmp_sql = sql.replace('\n', '').lower()
     if insert_reg.match(tmp_sql):
         try:
@@ -67,7 +75,7 @@ def sql_execute(sql, params, write_log, autocommit=True):
 
     cursor.close()
     if autocommit:
-        connection.commit()
+        conn.commit()
 
     return ret
 
@@ -89,22 +97,27 @@ def format_params(params, exec_result):
 
 
 @db_reconnect
-def sql_execute_trans(sql_and_params_l, write_log):
-    is_autocommit = connection.get_autocommit()
-    connection.autocommit(False)
+def sql_execute_trans(sql_and_params_l, write_log, using=None):
+    if using is not None:
+        conn = connections[using]
+    else:
+        conn = connection
+
+    is_autocommit = conn.get_autocommit()
+    conn.autocommit(False)
     try:
         sql_first, params_first = sql_and_params_l[0]
         _, exec_result = sql_execute(sql_first, params_first, write_log, autocommit=False)
         for sql, params in sql_and_params_l[1:]:
             new_params = format_params(params, exec_result)
             _, exec_result = sql_execute(sql, new_params, write_log, autocommit=False)
-        connection.commit()
+        conn.commit()
     except Exception as err:
-        connection.rollback()
+        conn.rollback()
         write_log("EXCEPTION", "Execute SQL Error: %s", err)
         return False
     finally:
-        connection.autocommit(is_autocommit)
+        conn.autocommit(is_autocommit)
 
     return True
 
@@ -113,18 +126,22 @@ def sql_execute_trans(sql_and_params_l, write_log):
 def db_transaction(wrapper_func):
     @wraps(wrapper_func)
     def inner_func(*args, **kwargs):
-
-        is_autocommit = connection.get_autocommit()
-        connection.set_autocommit(False)
+        using = kwargs.get('using', None)
+        if using is not None:
+            conn = connections[using]
+        else:
+            conn = connection
+        is_autocommit = conn.get_autocommit()
+        conn.set_autocommit(False)
 
         try:
             wrapper_func(*args, **kwargs)
-            connection.commit()
+            conn.commit()
         except Exception as err:
-            connection.rollback()
+            conn.rollback()
             raise Exception(str(err))
         finally:
-            connection.set_autocommit(is_autocommit)
+            conn.set_autocommit(is_autocommit)
 
     return inner_func
 

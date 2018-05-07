@@ -80,15 +80,23 @@ WSGI_APPLICATION = 'billing_collect_new.wsgi.application'
 # https://docs.djangoproject.com/en/1.11/ref/settings/#databases
 
 if DEBUG:
-    db_config_file = os.path.join(BASE_DIR, 'billing_collect_new/database_dev.cnf')
+    db_default_file = os.path.join(BASE_DIR, 'billing_collect_new/default_db_dev.cnf')
+    job_mapping_file = os.path.join(BASE_DIR, 'billing_collect_new/job_mapping_dev.cnf')
 else:
-    db_config_file = os.path.join(BASE_DIR, 'billing_collect_new/database_prod.cnf')
+    db_default_file = os.path.join(BASE_DIR, 'billing_collect_new/default_db_prod.cnf')
+    job_mapping_file = os.path.join(BASE_DIR, 'billing_collect_new/job_mapping_prod.cnf')
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'OPTIONS': {
-            'read_default_file': db_config_file
+            'read_default_file': db_default_file
+        }
+    },
+    'job-mapping': {
+        'ENGINE': 'django.db.backends.mysql',
+        'OPTIONS': {
+            'read_default_file': job_mapping_file
         }
     }
 }

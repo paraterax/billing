@@ -61,7 +61,7 @@ class CollectorCS(CollectorBase):
               "cluster_id LIKE '%%PART1%%'"
         time_info = self.billing.query(sql, first=True)
         command = self._init_env.format(
-            "python manage.py runscript slurm_sync_node_pend %s" % time_info.last_create_time.strftime(
+            "python manage.py runscript slurm_sync_node_pend --script-args %s" % time_info.last_create_time.strftime(
                 '%Y-%m-%dT%H:%M:%S'
             )
         )

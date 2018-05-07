@@ -86,22 +86,22 @@ class Billing:
         self._pay_user_d = {}
         self.current_cluster_id = cluster_id
 
-    def query(self, sql, *params, first=False):
+    def query(self, sql, *params, first=False, using=None):
         self.write_log("INFO", "Execute SQL: %s, with params: %s", sql, str(params))
-        result = query(sql, *params, first=first)
+        result = query(sql, *params, first=first, using=using)
         self.write_log("DEBUG", "Return Result: %s.", result)
 
         return result
 
-    def sql_execute(self, sql, params, commit=True):
+    def sql_execute(self, sql, params, commit=True, using=None):
         self.write_log("INFO", "Execute SQL: %s, with params: %s", sql, str(params))
-        result = sql_execute(sql, params, self.write_log, autocommit=commit)
+        result = sql_execute(sql, params, self.write_log, autocommit=commit, using=using)
         self.write_log("DEBUG", "Return Result: %s.", result)
         return result
 
-    def sql_execute_trans(self, sql_and_params_l):
+    def sql_execute_trans(self, sql_and_params_l, using=None):
         self.write_log("INFO", "BEGIN Transaction")
-        new_conn, success = sql_execute_trans(sql_and_params_l, self.write_log)
+        new_conn, success = sql_execute_trans(sql_and_params_l, self.write_log, using=using)
         self.write_log("INFO", "Commit" if success else "Rollback")
 
     def generate_id(self):
@@ -280,7 +280,7 @@ class Billing:
 
         return need_insert, daily_cost_id
 
-    def save_daily_cost(self, cluster_user_id, collect_date, partition, cpu_type, cpu_time):
+    def save_daily_cost(self, cluster_user_id, collect_date, partition, cpu_type, cpu_time, user_id=None):
         not_exists, daily_cost_id = self.update_daily_cost(
             cluster_user_id, collect_date, partition, cpu_type, cpu_time)
 
@@ -292,7 +292,7 @@ class Billing:
         (id, product_id, user_id, daily, cluster_id, `partition`, collect_date, daily_type, cpu_time_type_id, account,
          cluster_user_id, cpu_time, created_time, update_time, was_removed)
         VALUES
-        (%s, 'PAPP', NULL, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, 0)
+        (%s, 'PAPP', %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s, %s, 0)
         """
         daily_cost_id = self.generate_id()
         daily = days_from_1970(collect_date)
@@ -301,7 +301,7 @@ class Billing:
             collect_date = collect_date.strftime('%Y-%m-%d 00:00:00')
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        params = (daily_cost_id, daily, self.current_cluster_id, partition, collect_date, cpu_type,
+        params = (daily_cost_id, user_id, daily, self.current_cluster_id, partition, collect_date, cpu_type,
                   'NOT_PAPP_%d' % cluster_user_id, cluster_user_id, cpu_time, current_time, current_time)
 
         ret = self.sql_execute(insert_sql, params)
@@ -823,27 +823,35 @@ class Billing:
         SELECT
             t_daily_cost.*,
             t_cluster_user.user_id AS bind_user_id
-        FROM t_daily_cost
-            INNER JOIN
+        INNER JOIN
             t_cluster_user ON t_daily_cost.cluster_user_id = t_cluster_user.id
-        WHERE t_daily_cost.user_id IS NULL
+        WHERE t_daily_cost.id NOT IN (
+            SELECT id
+            FROM t_daily_cost
+                INNER JOIN
+                t_account_log ON t_account_log.daily_cost_id = t_daily_cost.id
+            WHERE t_daily_cost.cluster_id = %s AND t_daily_cost.was_removed = 0
+        )
             AND t_daily_cost.cluster_id = %s
             AND t_daily_cost.was_removed = 0
-            AND t_cluster_user.user_id IS NOT NULL
         """)
 
         daily_cost_update_sql = "UPDATE t_daily_cost SET user_id=%s WHERE id=%s"
 
-        not_account_cost_set = self.query(daily_cost_sql, cluster)
+        not_account_cost_set = self.query(daily_cost_sql, cluster, cluster)
 
         for not_account_cost in not_account_cost_set:
-            self.sql_execute(daily_cost_update_sql, (not_account_cost.bind_user_id, not_account_cost.id))
+            if not_account_cost.user_id is None and not_account_cost.bind_user_id is None:
+                continue
 
-            group_id, pay_user_id = self.get_pay_info(not_account_cost.bind_user_id)
+            if not_account_cost.user_id is None and not_account_cost.bind_user_id is not None:
+                self.sql_execute(daily_cost_update_sql, (not_account_cost.bind_user_id, not_account_cost.id))
+
+            _final_user_id = not_account_cost.user_id or not_account_cost.bind_user_id
+            group_id, pay_user_id = self.get_pay_info(_final_user_id)
 
             self.new_account_log(
-                group_id, pay_user_id,
-                not_account_cost.bind_user_id, cluster, not_account_cost.id, not_account_cost.cpu_time
+                group_id, pay_user_id, _final_user_id, cluster, not_account_cost.id, not_account_cost.cpu_time
             )
 
     def income_statistics(self):

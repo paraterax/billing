@@ -99,11 +99,13 @@ class CollectorBase(object):
             self.settings.get('USER'), self.settings.get('PASSWORD', None),
             self.settings.get('KEY_FILE', None))
 
-        copied_kwargs = self.connect_kwargs.copy()
-        allow_auth_error = copied_kwargs.pop('allow_auth_error', False)
+        connect_options = self.settings.get('CONNECT_OPTIONS', {})
+        allow_auth_error = connect_options.pop('allow_auth_error', False)
+        retry_time_max = connect_options.pop('RETRY', RETRY_TIME)
+
         try:
             self.client.connect(ip, port=port, username=username, password=password,
-                                key_filename=key_file, **copied_kwargs)
+                                key_filename=key_file, **connect_options)
             transport = self.client.get_transport()
             transport.set_keepalive(3)
             # if connect successfully, reset the retry_time attribute to 1
@@ -115,7 +117,7 @@ class CollectorBase(object):
             self.close()
             if allow_auth_error:
                 # ERA cluster may be auth error, but retry a few times, maybe success.
-                if self.retry_time <= RETRY_TIME:
+                if self.retry_time <= retry_time_max:
                     self.retry_time += 1
                 else:
                     return False
@@ -124,12 +126,12 @@ class CollectorBase(object):
                 return False
         except paramiko.BadHostKeyException:
             self.write_log("EXCEPTION", "Connect to %s error." % self.cluster_name)
-            self.client.close()
+            self.close()
             return False
         except (paramiko.SSHException, socket.error) as err:
             self.write_log("EXCEPTION", "Connect to %s error. %s" % (self.cluster_name, err))
-            self.client.close()
-            if self.retry_time <= RETRY_TIME:
+            self.close()
+            if self.retry_time <= retry_time_max:
                 self.retry_time += 1
             else:
                 return False
@@ -544,10 +546,12 @@ class CollectorBase(object):
     def fetch_cpu_time(self, collect_date):
         raise NotImplementedError()
 
-    def _do_fetch_cpu_time(self, command):
-        stdout, stderr = self.exec_command(command)
+    def _do_fetch_cpu_time(self, command, daily_cost_dict_list=None):
 
-        daily_cost_dict_list = self.parse_output_to_json(stdout) or []
+        if daily_cost_dict_list is None:
+            stdout, stderr = self.exec_command(command)
+
+            daily_cost_dict_list = self.parse_output_to_json(stdout) or []
         # [
         #     {
         #         "collect_day": "2018-04-16",
@@ -559,7 +563,8 @@ class CollectorBase(object):
         #         "collect_day": "2018-04-16",
         #         "partition": "work",
         #         "user": "para67",
-        #         "cputime": 1421448
+        #         "cputime": 1421448,
+        #         "user_id": "SELF-Pgsf4ibvJSQag1MYZUOXRA7hRPDVL5jeHKvOIOYoWOU"
         #     }
         # ]
         cluster_user_dict = {}
@@ -581,7 +586,9 @@ class CollectorBase(object):
             partition = daily_cost_dict.get('partition', None)
             cpu_time = daily_cost_dict.get('cputime', 0)
 
-            self.billing.save_daily_cost(cluster_user_id, collect_day, partition, "CPU", cpu_time)
+            user_id = daily_cost_dict.get('user_id', None)
+
+            self.billing.save_daily_cost(cluster_user_id, collect_day, partition, "CPU", cpu_time, user_id=user_id)
 
     def fetch_user(self):
         raise NotImplementedError()

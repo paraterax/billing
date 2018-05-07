@@ -1,7 +1,9 @@
 import os
 
+home_dir = os.environ.get('HOME')
+
 if os.environ.get('BILLING_COLLECT_DEBUG'):
-    base_dir = '/root/key_files'
+    base_dir = os.path.join(home_dir, 'key_files')
 else:
     base_dir = '/oits/service/key_files'
 
@@ -37,7 +39,11 @@ CPU_COLLECT_CONFIG = {
         "USER": "blsc",
         "PASSWORD": None,
         "KEY_FILE": None,
-        "NODELIST": []
+        "NODELIST": [],
+        "CONNECT_OPTIONS": {
+            "ALLOW_AUTH_ERROR": True,
+            "RETRY": 10
+        }
     },
     "ParaGrid1": {
         "IP": "58.213.64.36",

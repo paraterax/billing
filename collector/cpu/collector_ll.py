@@ -13,8 +13,8 @@ class CollectorLL(CollectorBase):
         super(CollectorLL, self).__init__(cluster, _logger=_logger, config_key=_config)
         self.init_connected = self.connect()
 
-        self._init_env = 'export PATH=/THFS/home/pp_slccc/.paratera_toolkit/miniconda2/bin/:$PATH ' \
-                         '&& cd /THFS/home/pp_slccc/.paratera_toolkit/project/accounting/ && {}'
+        self._init_env = "ssh ln2 'export PATH=/THFS/home/pp_slccc/.paratera_toolkit/miniconda2/bin/:$PATH " \
+                         "&& cd /THFS/home/pp_slccc/.paratera_toolkit/project/accounting/ && {}'"
 
     def fetch_cpu_time(self, collect_date):
         start_date, end_date = self.format_date_range(collect_date)
@@ -60,7 +60,7 @@ class CollectorLL(CollectorBase):
               "cluster_id LIKE '%%PART1%%'"
         time_info = self.billing.query(sql, first=True)
         command = self._init_env.format(
-            "python manage.py runscript slurm_sync_node_pend %s" % time_info.last_create_time.strftime(
+            "python manage.py runscript slurm_sync_node_pend --script-args %s" % time_info.last_create_time.strftime(
                 '%Y-%m-%dT%H:%M:%S'
             )
         )
