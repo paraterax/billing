@@ -557,7 +557,8 @@ class CollectorBase(object):
         #         "collect_day": "2018-04-16",
         #         "partition": "work",
         #         "user": "para47",
-        #         "cputime": 9191640
+        #         "cputime": 9191640,
+        #         "user_id": null
         #     },
         #     {
         #         "collect_day": "2018-04-16",
@@ -576,17 +577,20 @@ class CollectorBase(object):
                 cluster_user_dict[collect_day] = self.query_cluster_user_full_by_time(collect_day)
 
             username = daily_cost_dict.get('user')
-            if username in cluster_user_dict[collect_day]:
-                cluster_user_obj = cluster_user_dict[collect_day][username]
-                cluster_user_id = cluster_user_obj.id
+            user_id = daily_cost_dict.get('user_id', None)
+
+            if user_id is None:
+                if username in cluster_user_dict[collect_day]:
+                    cluster_user_obj = cluster_user_dict[collect_day][username]
+                    cluster_user_id = cluster_user_obj.id
+                else:
+                    cluster_user_id = self.save_cluster_user(username)
+                    cluster_user_dict[collect_day][username] = cluster_user_id
             else:
-                cluster_user_id = self.save_cluster_user(username)
-                cluster_user_dict[collect_day][username] = cluster_user_id
+                cluster_user_id = None
 
             partition = daily_cost_dict.get('partition', None)
             cpu_time = daily_cost_dict.get('cputime', 0)
-
-            user_id = daily_cost_dict.get('user_id', None)
 
             self.billing.save_daily_cost(cluster_user_id, collect_day, partition, "CPU", cpu_time, user_id=user_id)
 

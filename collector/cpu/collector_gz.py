@@ -19,110 +19,6 @@ class CollectorGZ(CollectorBase):
         command = self._init_env.format("python manage.py runscript slurm_sync_users")
         self._do_fetch_user(command)
 
-    def get_user_id_by_job(self, job_id, submit_time):
-        sql = "SELECT uid FROM t_job WHERE job_id=%s AND submit_time=%s"
-        uid_qry = self.billing.query(sql, job_id, submit_time, first=True, using='job-mapping')
-        if uid_qry is None:
-            uid_qry = self.billing.query("SELECT uid FROM t_job WHERE job_id=%s", job_id,
-                                         first=True, using='job-mapping')
-
-        if uid_qry is None:
-            return None
-        else:
-            return uid_qry.uid
-
-    def extract_cpu_time_from_job(self, command):
-        stdout, stderr = self.exec_command(command)
-        job_info_dict = self.parse_output_to_json(stdout) or {}
-
-        # Example of job_info_dict:
-        # {
-        #     "jobs": [
-        #         {
-        #             "status": "COMPLETED",
-        #             "elapsed_raw": null,
-        #             "update_time": "2018-03-30T06:54:11.979296",
-        #             "exit_code": "0:0",
-        #             "job_id": "4320844",
-        #             "start_time": "2018-01-01T04:48:45",
-        #             "partition": "work",
-        #             "cputime_raw": 0,
-        #             "node_list": "cn[7097-7098]",
-        #             "id": 865236,
-        #             "cluster": "tianhe2-c",
-        #             "ntasks": 0,
-        #             "nnodes": 2,
-        #             "create_time": "2018-03-30T06:54:11.979251",
-        #             "user": "p-yangjl",
-        #             "end_time": "2017-12-30T00:00:00",
-        #             "submit_time": "2017-12-29T09:35:51",
-        #             "alloc_cpus": 48,
-        #             "elapsed": "00:00:00",
-        #             "job_name": "wgl",
-        #             "alloc_gpus": 0
-        #         }
-        #     ],
-        #     "page_no": 1
-        # }
-
-        daily_cost_dict = {}
-        for job_info in job_info_dict.get('jobs', []):
-            job_id = job_info.get('job_id')
-            partition = job_info.get('partition')
-            username = job_info.get('user')
-            submit_time = job_info.get('submit_time')
-            start_time = job_info.get('start_time', None)
-            end_time = job_info.get('end_time', None)
-            cpu_time = job_info.get('cputime_raw', 0)
-
-            if start_time is None or end_time <= start_time:
-                continue
-
-            try:
-                start_time = datetime.strptime(start_time, '%Y-%m-%dT%H:%M:%S')
-            except ValueError:
-                continue
-
-            collect_day = start_time.strftime('%Y-%m-%d')
-
-            user_id = self.get_user_id_by_job(job_id, submit_time)
-            group_key = (username, user_id, partition, collect_day)
-
-            if group_key not in daily_cost_dict:
-                daily_cost_dict[group_key] = {'cputime': int(cpu_time)}
-            else:
-                daily_cost_dict[group_key]['cputime'] += int(cpu_time)
-
-        # Return Example Format
-        # [
-        #     {
-        #         "collect_day": "2018-04-16",
-        #         "partition": "work",
-        #         "user": "para47",
-        #         "cputime": 9191640,
-        #         "user_id": "SELF-Pgsf4ibvJSQag1MYZUOXRA7hRPDVL5jeHKvOIOYoWOU",
-        #     },
-        #     {
-        #         "collect_day": "2018-04-16",
-        #         "partition": "work",
-        #         "user": "para67",
-        #         "cputime": 1421448,
-        #         "user_id": null,
-        #     }
-        # ]
-
-        daily_cost_dict_list = [
-            {
-                "user": group_key[0],
-                "user_id": group_key[1],
-                "partition": group_key[2],
-                "collect_day": group_key[3],
-                "cputime": cpu_time
-            } for group_key, cpu_time in daily_cost_dict.items()
-        ]
-
-        return daily_cost_dict_list
-
     def fetch_cpu_time(self, collect_date_range):
         """
         根据采集日期的时间范围，采集机时使用信息
@@ -137,10 +33,9 @@ class CollectorGZ(CollectorBase):
                 start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
             )
         )
+        final_command = "ssh ln2 '%s'" % command
 
-        daily_cost_dict_list = self.extract_cpu_time_from_job(command)
-
-        self._do_fetch_cpu_time(None, daily_cost_dict_list=daily_cost_dict_list)
+        self._do_fetch_cpu_time(final_command)
 
     def fetch_job(self, date_range):
         start_date, end_date = self.format_date_range(date_range)

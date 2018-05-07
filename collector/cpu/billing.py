@@ -236,20 +236,20 @@ class Billing:
                 (update_account_log_sql, update_params)
             ])
 
-    def update_daily_cost(self, cluster_user_id, collect_date, partition, cpu_type, cpu_time):
+    def update_daily_cost(self, account, collect_date, partition, cpu_type, cpu_time):
         daily = days_from_1970(collect_date)
 
         if partition is not None:
-            select_sql = "SELECT id, cpu_time, user_id FROM t_daily_cost WHERE cluster_user_id=%s AND daily=%s " \
+            select_sql = "SELECT id, cpu_time, user_id FROM t_daily_cost WHERE daily=%s " \
                      "AND cluster_id=%s AND `partition`=%s AND cpu_time_type_id=%s AND account=%s AND was_removed=0"
             params = (
-                cluster_user_id, daily, self.current_cluster_id, partition, cpu_type, 'NOT_PAPP_%s' % cluster_user_id
+                daily, self.current_cluster_id, partition, cpu_type, account
             )
         else:
-            select_sql = "SELECT id, cpu_time, user_id FROM t_daily_cost WHERE cluster_user_id=%s AND daily=%s " \
+            select_sql = "SELECT id, cpu_time, user_id FROM t_daily_cost WHERE daily=%s " \
                          "AND cluster_id=%s AND `partition` IS NULL AND cpu_time_type_id=%s " \
                          "AND account=%s AND was_removed=0"
-            params = (cluster_user_id, daily, self.current_cluster_id, cpu_type, 'NOT_PAPP_%s' % cluster_user_id)
+            params = (daily, self.current_cluster_id, cpu_type, account)
 
         # 应该根据cluster_user_id 而不是user_id，因为user_id 可能之前没有值，后来绑定了，就有值了，但是daily_cost中可能没有
         # if cluster_user.user_id is None:
@@ -281,8 +281,13 @@ class Billing:
         return need_insert, daily_cost_id
 
     def save_daily_cost(self, cluster_user_id, collect_date, partition, cpu_type, cpu_time, user_id=None):
+        if user_id is not None:
+            account = 'CLOUD_%s' % user_id
+        else:
+            account = 'NOT_PAPP_%d' % cluster_user_id
+
         not_exists, daily_cost_id = self.update_daily_cost(
-            cluster_user_id, collect_date, partition, cpu_type, cpu_time)
+            account, collect_date, partition, cpu_type, cpu_time)
 
         if not not_exists:
             return daily_cost_id
@@ -302,13 +307,13 @@ class Billing:
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         params = (daily_cost_id, user_id, daily, self.current_cluster_id, partition, collect_date, cpu_type,
-                  'NOT_PAPP_%d' % cluster_user_id, cluster_user_id, cpu_time, current_time, current_time)
+                  account, cluster_user_id, cpu_time, current_time, current_time)
 
         ret = self.sql_execute(insert_sql, params)
 
         if ret is False:
             # insert failed, maybe already exists in the table, so update the record
-            _, daily_cost_id = self.update_daily_cost(cluster_user_id, collect_date, partition, cpu_type, cpu_time)
+            _, daily_cost_id = self.update_daily_cost(account, collect_date, partition, cpu_type, cpu_time)
 
         return daily_cost_id
 
