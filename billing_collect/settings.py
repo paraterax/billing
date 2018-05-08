@@ -54,7 +54,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'billing_collect_new.urls'
+ROOT_URLCONF = 'billing_collect.urls'
 
 TEMPLATES = [
     {
@@ -73,30 +73,22 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'billing_collect_new.wsgi.application'
+WSGI_APPLICATION = 'billing_collect.wsgi.application'
 
 
 # Database
 # https://docs.djangoproject.com/en/1.11/ref/settings/#databases
 
 if DEBUG:
-    db_default_file = os.path.join(BASE_DIR, 'billing_collect_new/default_db_dev.cnf')
-    job_mapping_file = os.path.join(BASE_DIR, 'billing_collect_new/job_mapping_dev.cnf')
+    db_default_file = os.path.join(BASE_DIR, 'billing_collect/default_db_dev.cnf')
 else:
-    db_default_file = os.path.join(BASE_DIR, 'billing_collect_new/default_db_prod.cnf')
-    job_mapping_file = os.path.join(BASE_DIR, 'billing_collect_new/job_mapping_prod.cnf')
+    db_default_file = os.path.join(BASE_DIR, 'billing_collect/default_db_prod.cnf')
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'OPTIONS': {
             'read_default_file': db_default_file
-        }
-    },
-    'job-mapping': {
-        'ENGINE': 'django.db.backends.mysql',
-        'OPTIONS': {
-            'read_default_file': job_mapping_file
         }
     }
 }

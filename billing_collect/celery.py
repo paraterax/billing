@@ -3,7 +3,7 @@ import os
 from celery import Celery
 
 # set the default Django settings module for the 'celery' program.
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'billing_collect_new.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'billing_collect.settings')
 
 app = Celery('billing_collect')
 

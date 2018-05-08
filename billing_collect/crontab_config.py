@@ -2,7 +2,7 @@ CRONTAB_CONFIG = {
     "disk_collect": {
         "minute": 0,
         "hour": 23,
-        'task': 'collector.task.disk_collect',
+        'task': 'collector.tasks.disk_collect',
         'enabled': False
     },
     "cpu_collect": {

@@ -33,10 +33,9 @@ def sync_group():
 def sync_user(cluster_list='*'):
     _valid_collector_num = 0
     collector_ins = []
+    if cluster_list == '*':
+        cluster_list = list(collector_class_dict.keys())
     for cluster in cluster_list:
-        if cluster_list != "*" and cluster not in cluster_list:
-            continue
-
         collector_cls = collector_class_dict.get(cluster, None)
         if collector_cls is None:
             continue

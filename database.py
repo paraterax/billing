@@ -4,7 +4,7 @@ import re
 from functools import wraps
 from collections import namedtuple
 import MySQLdb
-from django.db import connection, connections,close_old_connections
+from django.db import connection, connections, close_old_connections
 
 
 def query_set_wrapper(cursor):
