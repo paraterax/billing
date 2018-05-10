@@ -1,9 +1,0 @@
-[client]
-database = billing
-# host = 60.205.159.189
-# user = wangxba
-# password = 5beff74ff7a4bde0ff6d0e867b99c821
-host = 123.56.139.12
-user = root
-password = root_pA55
-default-character-set = utf8
