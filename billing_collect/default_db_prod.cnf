@@ -1,6 +1,0 @@
-[client]
-database = billing
-host = 123.56.139.12
-user = root
-password = root_pA55
-default-character-set = utf8
